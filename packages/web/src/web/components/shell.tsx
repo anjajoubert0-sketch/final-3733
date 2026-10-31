@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { TEAM, type ReportStatus } from "../lib/demo-data";
 import { cn } from "@/lib/utils";
@@ -42,7 +42,21 @@ function NavLink({ href, label, placeholder }: { href: string; label: string; pl
 // ---------- layout ----------
 
 export function Shell({ children }: { children: ReactNode }) {
-  const [role, setRole] = useState<Role>("Practitioner");
+  const [role, setRoleState] = useState<Role>(() => {
+    try {
+      return localStorage.getItem("vad-role") === "Coach" ? "Coach" : "Practitioner";
+    } catch {
+      return "Practitioner";
+    }
+  });
+  const setRole = (r: Role) => {
+    setRoleState(r);
+    try {
+      localStorage.setItem("vad-role", r);
+    } catch {
+      /* storage unavailable: role resets on reload */
+    }
+  };
   return (
     <RoleContext.Provider value={{ role, setRole }}>
       <div className="min-h-screen lg:flex">
@@ -88,6 +102,7 @@ export function Shell({ children }: { children: ReactNode }) {
                   {(["Practitioner", "Coach"] as Role[]).map((opt) => (
                     <button
                       key={opt}
+                      aria-pressed={role === opt}
                       onClick={() => setRole(opt)}
                       className={cn(
                         "px-3 py-1 rounded text-[13px] font-medium transition-colors",
@@ -213,4 +228,60 @@ export function Stat({ label, value, unit }: { label: string; value: string; uni
 
 export function DemoTag() {
   return <span className="rounded-sm border border-dashed border-[#b9793a] text-[#7a4c1c] px-1.5 py-px text-[10px] uppercase tracking-wider">Demo data</span>;
+}
+
+// Side sheet for drill-down lists (rest required, possible peaking, athlete details).
+export function Drawer({
+  open,
+  onClose,
+  title,
+  eyebrow,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  title: string;
+  eyebrow?: string;
+  children: ReactNode;
+}) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50">
+      <button aria-label="Close panel" className="absolute inset-0 bg-[#0f1411]/45" onClick={onClose} />
+      <dialog
+        open
+        aria-modal="true"
+        aria-label={title}
+        className="absolute left-auto right-0 top-0 m-0 p-0 border-0 h-full max-h-none w-full max-w-[460px] bg-card text-foreground shadow-2xl flex flex-col drawer-in"
+      >
+        <header className="flex items-start justify-between gap-3 px-6 pt-5 pb-4 border-b border-border">
+          <div className="min-w-0">
+            {eyebrow && <div className="text-[11px] uppercase tracking-[0.16em] text-[#2f5d46] font-semibold">{eyebrow}</div>}
+            <h2 className="font-display text-[24px] uppercase leading-tight">{title}</h2>
+          </div>
+          <button onClick={onClose} className="rounded-md border border-border px-2.5 py-1 text-[13px] hover:bg-background">
+            Close
+          </button>
+        </header>
+        <div className="flex-1 overflow-y-auto px-6 py-5">{children}</div>
+      </dialog>
+    </div>
+  );
+}
+
+// Labels the type of information a value is, so coach assessments are never read as lab measurements.
+export function SourceTag({ kind }: { kind: "Measured" | "Calculated" | "Practitioner interpretation" | "Coach assessment" }) {
+  const map = {
+    Measured: "border-[#2f5d46]/40 text-[#2f5d46]",
+    Calculated: "border-[#7c8f86]/60 text-[#4f5f57]",
+    "Practitioner interpretation": "border-[#3c4a56]/40 text-[#3c4a56]",
+    "Coach assessment": "border-[#b9793a]/60 text-[#7a4c1c]",
+  };
+  return <span className={cn("rounded-sm border px-1.5 py-px text-[10px] uppercase tracking-wider whitespace-nowrap", map[kind])}>{kind}</span>;
 }

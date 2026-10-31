@@ -54,7 +54,7 @@ export default function TestEntryPage() {
                 <select aria-label="Athlete" value={athleteId} onChange={(e) => setAthleteId(e.target.value)} className={inputCls}>
                   {ATHLETES.map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.name} · {a.event}
+                      {a.name} · {a.position}
                     </option>
                   ))}
                 </select>
@@ -83,7 +83,7 @@ export default function TestEntryPage() {
                 <input aria-label="Testing equipment" value={equipment} onChange={(e) => setEquipment(e.target.value)} className={inputCls} />
               </Field>
               <div className="md:col-span-2 text-[12.5px] text-muted-foreground">
-                Athlete: {athlete.sex === "F" ? "Female" : "Male"} · {athlete.event} · last test {athlete.tested ? fmtDate(athlete.lastTest) : "none"}
+                Athlete: {athlete.sex === "F" ? "Female" : "Male"} · {athlete.position} · last test {athlete.tested ? fmtDate(athlete.lastTest) : "none"}
               </div>
             </div>
           </Card>

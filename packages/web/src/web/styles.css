@@ -144,3 +144,13 @@ body {
     @apply bg-background text-foreground;
   }
 }
+
+@keyframes drawer-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+.drawer-in { animation: drawer-in 0.22s ease both; }
+
+/* Coach dashboard grid: S = 1 col, M = 2 cols, L = full row */
+.dash-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+@media (min-width: 768px) { .dash-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .w-M, .w-L { grid-column: span 2; } }
+@media (min-width: 1280px) { .dash-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1.25rem; } .w-M { grid-column: span 2; } .w-L { grid-column: span 4; } }
+.w-dragging { opacity: 0.45; }
+.w-over { outline: 2px dashed #2f5d46; outline-offset: 3px; }

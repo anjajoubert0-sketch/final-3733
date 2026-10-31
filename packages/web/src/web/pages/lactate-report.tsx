@@ -49,7 +49,7 @@ export default function LactateReportPage() {
         / <span className="text-foreground">{t.type} report</span>
       </nav>
 
-      <PageHeader eyebrow={`${fmtDate(t.date)} · ${a.event} · ${TEAM.name}`} title={isLt ? "Lactate threshold report" : `${t.type} report`}>
+      <PageHeader eyebrow={`${fmtDate(t.date)} · ${a.position} · ${TEAM.name}`} title={isLt ? "Lactate threshold report" : `${t.type} report`}>
         <StatusPill status={t.status} />
         <DemoTag />
       </PageHeader>

@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import {
   ATHLETES,
-  EVENT_GROUP,
   GROUP_FILTERS,
   TEAM,
   aggText,
@@ -14,77 +13,93 @@ import {
   fmtPace,
   filterAthletes,
   getAthlete,
+  groupOf,
   isDueForRetest,
   paceText,
   teamStats,
   trendTone,
   type GroupFilter,
 } from "../lib/demo-data";
-import { Card, DemoTag, StatusPill, SummaryCard, TrendPill } from "../components/shell";
+import { Card, DemoTag, StatusPill, SummaryCard, TrendPill, useRole } from "../components/shell";
 import { Donut, HBars, Histogram } from "../components/charts";
-
-
-const groupColor = (event: string) => (EVENT_GROUP[event as keyof typeof EVENT_GROUP] === "Middle distance (800–1500 m)" ? "#2f5d46" : "#b9793a");
+import { CoachDashboard } from "../components/coach-dashboard";
+import { GROUP_COLOR } from "../components/widgets";
 
 function Index() {
-  const [filter, setFilter] = useState<GroupFilter>("All events");
-  const [previewId, setPreviewId] = useState("a01");
+  const { role } = useRole();
+  return (
+    <div>
+      <TeamBand />
+      {role === "Coach" ? <CoachDashboard /> : <PractitionerDashboard />}
+    </div>
+  );
+}
+
+function TeamBand() {
+  const nextIn = daysSince(TEAM.nextTestingDate) * -1;
+  const { role } = useRole();
+  return (
+    <section className="topo rounded-[12px] text-[#f5f4ef] p-6 lg:p-8 mb-6 fade-up relative overflow-hidden">
+      <div className="flex flex-wrap items-start justify-between gap-6">
+        <div className="flex items-start gap-5">
+          <div className="h-16 w-16 rounded-lg bg-[#2f5d46] grid place-items-center font-display text-[26px] text-white shrink-0">{TEAM.logoText}</div>
+          <div>
+            <div className="font-display text-[12px] uppercase tracking-[0.2em] text-[#c9d8c4]">{role === "Coach" ? "Performance dashboard · Coach view" : "Team testing dashboard · Practitioner view"}</div>
+            <h1 className="font-display text-[44px] leading-none uppercase mt-1">{TEAM.name}</h1>
+            <div className="mt-2 text-[14px] text-[#c9cdc5]">
+              {TEAM.sport} · Head coach {TEAM.headCoach} · Season {TEAM.season} · {ATHLETES.length} athletes
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-[13px]">
+          <div>
+            <div className="uppercase tracking-[0.14em] text-[11px] text-[#9fb3a4]">Last testing date</div>
+            <div className="font-display text-[20px] num">{fmtDate(TEAM.lastTestingDate)}</div>
+          </div>
+          <div>
+            <div className="uppercase tracking-[0.14em] text-[11px] text-[#9fb3a4]">Next scheduled testing</div>
+            <div className="font-display text-[20px] num">
+              {fmtDate(TEAM.nextTestingDate)} <span className="text-[13px] text-[#c9d8c4] font-sans">in {nextIn} days</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PractitionerDashboard() {
+  const [filter, setFilter] = useState<GroupFilter>("All athletes");
+  const [previewId, setPreviewId] = useState("f01");
   const list = useMemo(() => filterAthletes(ATHLETES, filter), [filter]);
   const s = teamStats(list);
   const preview = getAthlete(previewId) ?? ATHLETES[0];
   const dueList = list.filter(isDueForRetest);
   const notTested = list.filter((a) => !a.tested);
-  const nextIn = daysSince(TEAM.nextTestingDate) * -1;
+  const reviewQueue = list.filter((a) => a.status === "Draft" || a.status === "Under review");
 
   return (
     <div>
-      {/* Team identity band */}
-      <section className="topo rounded-[12px] text-[#f5f4ef] p-6 lg:p-8 mb-6 fade-up relative overflow-hidden">
-        <div className="flex flex-wrap items-start justify-between gap-6">
-          <div className="flex items-start gap-5">
-            <div className="h-16 w-16 rounded-lg bg-[#2f5d46] grid place-items-center font-display text-[26px] text-white shrink-0">{TEAM.logoText}</div>
-            <div>
-              <div className="font-display text-[12px] uppercase tracking-[0.2em] text-[#c9d8c4]">Team performance dashboard</div>
-              <h1 className="font-display text-[44px] leading-none uppercase mt-1">{TEAM.name}</h1>
-              <div className="mt-2 text-[14px] text-[#c9cdc5]">
-                {TEAM.sport} · Head coach {TEAM.headCoach} · Season {TEAM.season}
-              </div>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-[13px]">
-            <div>
-              <div className="uppercase tracking-[0.14em] text-[11px] text-[#9fb3a4]">Last testing date</div>
-              <div className="font-display text-[20px] num">{fmtDate(TEAM.lastTestingDate)}</div>
-            </div>
-            <div>
-              <div className="uppercase tracking-[0.14em] text-[11px] text-[#9fb3a4]">Next scheduled testing</div>
-              <div className="font-display text-[20px] num">
-                {fmtDate(TEAM.nextTestingDate)} <span className="text-[13px] text-[#c9d8c4] font-sans">in {nextIn} days</span>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <label className="text-[12px] uppercase tracking-[0.14em] text-[#9fb3a4]" htmlFor="grp">
-            Filter by event group
-          </label>
-          <select
-            id="grp"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value as GroupFilter)}
-            className="rounded-md bg-[#0f1411]/60 border border-[#2f5d46] px-3 py-1.5 text-[14px] text-white"
-          >
-            {GROUP_FILTERS.map((g) => (
-              <option key={g} value={g} className="text-black">
-                {g}
-              </option>
-            ))}
-          </select>
-          <span className="text-[12px] text-[#9fb3a4]">
-            Team averages are shown only where at least 5 comparable athletes have data. Paces are never averaged across events.
-          </span>
-        </div>
-      </section>
+      <div className="flex flex-wrap items-center gap-3 mb-5">
+        <label className="text-[12px] uppercase tracking-[0.14em] text-muted-foreground font-semibold" htmlFor="grp">
+          Filter
+        </label>
+        <select
+          id="grp"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value as GroupFilter)}
+          className="rounded-md bg-card border border-border px-3 py-1.5 text-[14px]"
+        >
+          {GROUP_FILTERS.map((g) => (
+            <option key={g} value={g}>
+              {g}
+            </option>
+          ))}
+        </select>
+        <span className="text-[12px] text-muted-foreground">
+          Team averages need at least 5 comparable athletes. Pace is never averaged across forwards and backs.
+        </span>
+      </div>
 
       {/* Summary cards */}
       <div className="stagger grid grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
@@ -102,23 +117,23 @@ function Index() {
         </div>
         <SummaryCard
           label="Average VO₂max"
-          value={s.vo2 !== undefined ? s.vo2.toFixed(1) : "—"}
+          value={s.vo2.value !== undefined ? s.vo2.value.toFixed(1) : "—"}
           unit="ml/kg/min"
-          sub={s.vo2 !== undefined ? `n = ${s.vo2N} · running-comparable` : aggText(undefined, s.vo2N)}
+          sub={s.vo2.value !== undefined ? `n = ${s.vo2.n} · same treadmill protocol` : aggText(undefined, s.vo2.n)}
           accent="#b9793a"
         />
         <SummaryCard
           label="Average aerobic threshold"
-          value={s.lt1Hr !== undefined ? String(Math.round(s.lt1Hr)) : "—"}
+          value={s.lt1Hr.value !== undefined ? String(Math.round(s.lt1Hr.value)) : "—"}
           unit="bpm (LT1 HR)"
-          sub={s.lt1Hr !== undefined ? "Pace by event group, see analytics" : aggText(undefined, s.tested)}
+          sub={s.lt1Hr.value !== undefined ? `n = ${s.lt1Hr.n} · pace by group in analytics` : aggText(undefined, s.lt1Hr.n)}
           accent="#7c8f86"
         />
         <SummaryCard
           label="Average anaerobic threshold"
-          value={s.lt2Hr !== undefined ? String(Math.round(s.lt2Hr)) : "—"}
+          value={s.lt2Hr.value !== undefined ? String(Math.round(s.lt2Hr.value)) : "—"}
           unit="bpm (LT2 HR)"
-          sub={s.lt2Hr !== undefined ? "Pace by event group, see analytics" : aggText(undefined, s.tested)}
+          sub={s.lt2Hr.value !== undefined ? `n = ${s.lt2Hr.n} · pace by group in analytics` : aggText(undefined, s.lt2Hr.n)}
           accent="#b3412b"
         />
         <SummaryCard label="Athletes due for retesting" value={String(s.due)} sub="Last test older than 120 days" accent="#b9793a" />
@@ -141,7 +156,7 @@ function Index() {
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
                   <th className="px-5 py-2.5 font-semibold">Athlete</th>
-                  <th className="px-3 py-2.5 font-semibold">Event</th>
+                  <th className="px-3 py-2.5 font-semibold">Position</th>
                   <th className="px-3 py-2.5 font-semibold">LT2 pace · HR</th>
                   <th className="px-3 py-2.5 font-semibold text-right">VO₂max</th>
                   <th className="px-3 py-2.5 font-semibold">Trend</th>
@@ -159,7 +174,7 @@ function Index() {
                         </Link>
                         {!a.tested && <div className="text-[12px] text-muted-foreground">Not tested</div>}
                       </td>
-                      <td className="px-3 py-2.5 text-muted-foreground">{a.event}</td>
+                      <td className="px-3 py-2.5 text-muted-foreground">{a.position}</td>
                       <td className="px-3 py-2.5 num whitespace-nowrap">{paceText(a, "lt2")}</td>
                       <td className="px-3 py-2.5 num text-right">{a.tested ? fmtNum(a.vo2) : "—"}</td>
                       <td className="px-3 py-2.5">
@@ -181,21 +196,41 @@ function Index() {
         <div className="space-y-6">
           <Card title="VO₂max by athlete" right={<DemoTag />}>
             <HBars
-              max={80}
+              max={70}
               unit=""
               items={[...list]
                 .filter((a) => a.vo2 !== undefined)
                 .sort((a, b) => (b.vo2 ?? 0) - (a.vo2 ?? 0))
-                .map((a) => ({ label: a.name, value: a.vo2, color: groupColor(a.event) }))}
+                .map((a) => ({ label: a.name, value: a.vo2, color: GROUP_COLOR[groupOf(a)] }))}
             />
             <div className="mt-4 flex gap-4 text-[12px] text-muted-foreground">
               <span className="inline-flex items-center gap-1.5">
-                <i className="h-2.5 w-2.5 rounded-sm bg-[#2f5d46]" /> Middle distance
+                <i className="h-2.5 w-2.5 rounded-sm bg-[#2f5d46]" /> Forwards
               </span>
               <span className="inline-flex items-center gap-1.5">
-                <i className="h-2.5 w-2.5 rounded-sm bg-[#b9793a]" /> Distance
+                <i className="h-2.5 w-2.5 rounded-sm bg-[#b9793a]" /> Backs
               </span>
             </div>
+          </Card>
+
+          <Card title="Report review queue" right={<span className="text-[12px] text-muted-foreground num">{reviewQueue.length} open</span>}>
+            {reviewQueue.length === 0 && <div className="text-[13px] text-muted-foreground">No drafts or reports under review in this view.</div>}
+            <ul className="divide-y divide-border/70">
+              {reviewQueue.map((a) => (
+                <li key={a.id} className="py-2.5 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <Link href={`/athletes/${a.id}`} className="font-semibold text-[14px] hover:underline">
+                      {a.name}
+                    </Link>
+                    <div className="text-[12px] text-muted-foreground">
+                      {a.position} · {a.tested ? `tested ${fmtDate(a.lastTest)}` : "awaiting baseline test"}
+                    </div>
+                  </div>
+                  <StatusPill status={a.status} />
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-[11.5px] text-muted-foreground">Coaches only see Approved or Published reports.</p>
           </Card>
 
           <Card title="Retest queue" right={<span className="text-[12px] text-muted-foreground num">{dueList.length} due</span>}>
@@ -208,7 +243,7 @@ function Index() {
                       {a.name}
                     </Link>
                     <div className="text-[12px] text-muted-foreground">
-                      {a.event} · last test {fmtDate(a.lastTest)}
+                      {a.position} · last test {fmtDate(a.lastTest)}
                     </div>
                   </div>
                   <TrendPill tone="ochre" label="Due" />
@@ -218,7 +253,7 @@ function Index() {
                 <li key={a.id} className="py-2.5 flex items-center justify-between gap-3">
                   <div>
                     <div className="font-semibold text-[14px]">{a.name}</div>
-                    <div className="text-[12px] text-muted-foreground">{a.event} · no baseline</div>
+                    <div className="text-[12px] text-muted-foreground">{a.position} · no baseline</div>
                   </div>
                   <TrendPill tone="stone" label="Not tested" />
                 </li>
@@ -240,7 +275,7 @@ function Index() {
             >
               {ATHLETES.map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.name} · {a.event}
+                  {a.name} · {a.position}
                 </option>
               ))}
             </select>
@@ -262,19 +297,19 @@ function Index() {
         </Card>
 
         <Card title="VO₂max distribution (team)" right={<DemoTag />}>
-          <Histogram
+          {s.vo2.n >= 5 && <Histogram
             values={list.filter((a) => a.vo2 !== undefined).map((a) => a.vo2!)}
             bins={6}
-            lo={62}
-            hi={76}
+            lo={48}
+            hi={64}
             color="#2f5d46"
             unit="VO₂max ml/kg/min"
             label="VO2max"
-          />
+          />}
           <p className="mt-3 text-[12.5px] text-muted-foreground">
-            {s.vo2N >= 5
-              ? "Distribution across athletes with a valid running VO₂max in this view."
-              : `Only ${s.vo2N} athlete(s) in this view: distribution suppressed to protect identity (n<5).`}
+            {s.vo2.n >= 5
+              ? "Distribution across athletes with a treadmill VO₂max in this view."
+              : `Only ${s.vo2.n} athlete(s) in this view: distribution suppressed to protect identity (n<5).`}
           </p>
         </Card>
       </div>
