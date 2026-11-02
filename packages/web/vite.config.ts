@@ -31,6 +31,7 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: ports.website,
+      host: "0.0.0.0", // bind IPv4 too, so the preview proxy can reach the dev server
       strictPort: true,
       allowedHosts: true,
       hmr: { overlay: false },
