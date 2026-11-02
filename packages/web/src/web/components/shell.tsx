@@ -1,30 +1,43 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
-import { TEAM, type ReportStatus } from "../lib/demo-data";
+import { STATUS_LABEL, type ReportStatus } from "../lib/demo-data";
 import { cn } from "@/lib/utils";
+import { useMe } from "../queries/me";
+import { useSquadList } from "../queries/squad";
+import { useCurrentTeamId } from "../hooks/use-squad";
+import { setActiveTeam } from "../hooks/use-active-team";
+import { roleLabel } from "../lib/roles";
+import { signOut } from "../lib/auth";
+import { queryClient } from "./provider";
 
-// ---------- role (prototype only, no auth) ----------
+// ---------- navigation (by role; the server re-checks every request) ----------
 
-export type Role = "Practitioner" | "Coach";
-const RoleContext = createContext<{ role: Role; setRole: (r: Role) => void }>({ role: "Practitioner", setRole: () => {} });
-export const useRole = () => useContext(RoleContext);
+type NavItem = { href: string; label: string; placeholder?: boolean };
 
-// ---------- navigation ----------
-
-const NAV: { href: string; label: string; practitionerOnly?: boolean; placeholder?: boolean }[] = [
+const COACH_NAV: NavItem[] = [
   { href: "/", label: "Team dashboard" },
   { href: "/athletes", label: "Team athletes" },
   { href: "/analytics", label: "Team analytics" },
+  { href: "/team", label: "Team" },
+  { href: "/book", label: "Book testing" },
   { href: "/history", label: "Testing history", placeholder: true },
-  { href: "/reports", label: "Team reports", placeholder: true },
   { href: "/schedule", label: "Testing schedule", placeholder: true },
-  { href: "/practitioner/test-entry", label: "Test entry", practitionerOnly: true },
-  { href: "/settings", label: "Settings", placeholder: true },
+  { href: "/settings", label: "Settings" },
 ];
 
-function NavLink({ href, label, placeholder }: { href: string; label: string; placeholder?: boolean }) {
+const STAFF_NAV: NavItem[] = [
+  { href: "/practitioner", label: "Practitioner hub" },
+  { href: "/practitioner/testing", label: "Testing management" },
+  { href: "/practitioner/pending", label: "Pending results" },
+  { href: "/practitioner/published", label: "Published results" },
+  { href: "/practitioner/coaches", label: "Coaches" },
+  { href: "/practitioner/individuals", label: "Individuals" },
+  { href: "/settings", label: "Settings" },
+];
+
+function NavLink({ href, label, placeholder }: NavItem) {
   const [loc] = useLocation();
-  const active = href === "/" ? loc === "/" : loc.startsWith(href);
+  const active = href === "/" || href === "/practitioner" ? loc === href : loc.startsWith(href);
   return (
     <Link
       href={href}
@@ -39,87 +52,121 @@ function NavLink({ href, label, placeholder }: { href: string; label: string; pl
   );
 }
 
+function TeamBlock() {
+  const { data: me } = useMe();
+  const teamId = useCurrentTeamId();
+  const isCoach = me?.role === "coach";
+  const { data: squad } = useSquadList(teamId, isCoach && !!teamId);
+  const teams = me?.teams ?? [];
+  if (!isCoach) {
+    return (
+      <div className="flex items-center gap-3">
+        <div className="h-9 w-9 rounded-md bg-[#b9793a] grid place-items-center font-display text-[15px] text-white">VD</div>
+        <div className="min-w-0">
+          <div className="font-display text-[15px] uppercase tracking-wide text-white truncate">Vert &amp; Dirt Lab</div>
+          <div className="text-[12px] text-[#7c8f86] truncate">{me?.isAdmin ? "Practitioner · Admin" : "Practitioner workspace"}</div>
+        </div>
+      </div>
+    );
+  }
+  const t = squad?.team;
+  return (
+    <div>
+      <div className="flex items-center gap-3">
+        <div className="h-9 w-9 rounded-md bg-[#2f5d46] grid place-items-center font-display text-[15px] text-white">{t?.logoText ?? "—"}</div>
+        <div className="min-w-0">
+          <div className="font-display text-[15px] uppercase tracking-wide text-white truncate">{t?.name ?? teams[0]?.name ?? "No team yet"}</div>
+          <div className="text-[12px] text-[#7c8f86] truncate">{t?.label ?? ""}</div>
+        </div>
+      </div>
+      {teams.length > 1 && (
+        <select
+          aria-label="Switch team"
+          value={teamId}
+          onChange={(e) => setActiveTeam(e.target.value)}
+          className="mt-3 w-full h-8 rounded-md bg-[#1c2520] border border-[#2a352f] text-[13px] text-white px-2"
+        >
+          {teams.map((x) => (
+            <option key={x.id} value={x.id}>
+              {x.name}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  );
+}
+
+function UserMenu() {
+  const { data: me } = useMe();
+  const [, navigate] = useLocation();
+  if (!me) return null;
+  return (
+    <details className="relative">
+      <summary className="list-none cursor-pointer flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1">
+        <span className="h-6 w-6 rounded-full bg-[#2f5d46] text-white grid place-items-center text-[11px] font-semibold">
+          {me.name.split(" ").map((p) => p[0]).slice(0, 2).join("")}
+        </span>
+        <span className="text-[13px] font-medium max-w-[140px] truncate">{me.name}</span>
+      </summary>
+      <div className="absolute right-0 mt-2 w-60 rounded-md border border-border bg-card shadow-lg p-3 z-20">
+        <div className="text-[14px] font-semibold truncate">{me.name}</div>
+        <div className="text-[12px] text-muted-foreground truncate">{me.email}</div>
+        <div className="mt-1 text-[11px] uppercase tracking-[0.12em] text-[#2f5d46] font-semibold">{roleLabel(me)}</div>
+        <button
+          onClick={async () => {
+            await signOut();
+            queryClient.clear();
+            navigate("/sign-in");
+          }}
+          className="mt-3 w-full rounded-md border border-border px-3 py-1.5 text-[13px] font-semibold hover:bg-background"
+        >
+          Sign out
+        </button>
+      </div>
+    </details>
+  );
+}
+
 // ---------- layout ----------
 
 export function Shell({ children }: { children: ReactNode }) {
-  const [role, setRoleState] = useState<Role>(() => {
-    try {
-      return localStorage.getItem("vad-role") === "Coach" ? "Coach" : "Practitioner";
-    } catch {
-      return "Practitioner";
-    }
-  });
-  const setRole = (r: Role) => {
-    setRoleState(r);
-    try {
-      localStorage.setItem("vad-role", r);
-    } catch {
-      /* storage unavailable: role resets on reload */
-    }
-  };
+  const { data: me } = useMe();
+  const nav = me?.isStaff ? [...STAFF_NAV, ...(me.isAdmin ? [{ href: "/admin", label: "Admin" }] : [])] : COACH_NAV;
+  const home = me?.isStaff ? "/practitioner" : "/";
   return (
-    <RoleContext.Provider value={{ role, setRole }}>
-      <div className="min-h-screen lg:flex">
-        <aside className="w-full max-w-full overflow-hidden lg:overflow-visible lg:w-[244px] lg:min-h-screen lg:sticky lg:top-0 lg:h-screen shrink-0 bg-[#0f1411] text-[#e9e8e2] flex flex-col">
-          <div className="px-5 pt-6 pb-5 border-b border-[#232d27]">
-            <Link href="/" className="block">
-              <img src="/images/vad-logo-white.png" alt="Vert & Dirt" className="w-[118px] h-auto opacity-95" />
-            </Link>
-            <div className="mt-4 font-display text-[11px] uppercase tracking-[0.18em] text-[#7c8f86]">Team Performance Portal</div>
-          </div>
-          <div className="px-4 py-4 border-b border-[#232d27]">
-            <div className="text-[11px] uppercase tracking-[0.14em] text-[#7c8f86] mb-2">Team</div>
-            <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-md bg-[#2f5d46] grid place-items-center font-display text-[15px] text-white">{TEAM.logoText}</div>
-              <div className="min-w-0">
-                <div className="font-display text-[15px] uppercase tracking-wide text-white truncate">{TEAM.name}</div>
-                <div className="text-[12px] text-[#7c8f86] truncate">{TEAM.label}</div>
-              </div>
-            </div>
-          </div>
-          <nav className="flex lg:flex-col gap-1 p-3 overflow-x-auto lg:overflow-visible flex-1">
-            {NAV.filter((n) => !(n.practitionerOnly && role !== "Practitioner")).map((n) => (
-              <NavLink key={n.href} {...n} />
-            ))}
-          </nav>
-          <div className="hidden lg:block p-4 text-[11px] leading-relaxed text-[#7c8f86] border-t border-[#232d27]">
-            Fictional demo data. Values are illustrative only and are not real physiological measurements.
-          </div>
-        </aside>
-
-        <div className="flex-1 min-w-0">
-          <header className="sticky top-0 z-10 bg-background/90 backdrop-blur border-b border-border">
-            <div className="flex flex-wrap items-center justify-between gap-3 px-6 lg:px-10 h-14">
-              <div className="flex items-center gap-3">
-                <span className="rounded-sm bg-[#b9793a]/15 text-[#7a4c1c] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider">
-                  Fictional demo data
-                </span>
-                <span className="hidden md:inline text-[13px] text-muted-foreground">Prototype · no backend · no authentication</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-[12px] text-muted-foreground">View as</span>
-                <div className="inline-flex rounded-md border border-border bg-card p-0.5">
-                  {(["Practitioner", "Coach"] as Role[]).map((opt) => (
-                    <button
-                      key={opt}
-                      aria-pressed={role === opt}
-                      onClick={() => setRole(opt)}
-                      className={cn(
-                        "px-3 py-1 rounded text-[13px] font-medium transition-colors",
-                        role === opt ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      {opt}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </header>
-          <main className="px-6 lg:px-10 py-8 max-w-[1400px] mx-auto">{children}</main>
+    <div className="min-h-screen lg:flex">
+      <aside className="w-full max-w-full overflow-hidden lg:overflow-visible lg:w-[244px] lg:min-h-screen lg:sticky lg:top-0 lg:h-screen shrink-0 bg-[#0f1411] text-[#e9e8e2] flex flex-col">
+        <div className="px-5 pt-6 pb-5 border-b border-[#232d27]">
+          <Link href={home} className="block">
+            <img src="/images/vad-logo-white.png" alt="Vert & Dirt" className="w-[118px] h-auto opacity-95" />
+          </Link>
+          <div className="mt-4 font-display text-[11px] uppercase tracking-[0.18em] text-[#7c8f86]">Team Performance Portal</div>
         </div>
+        <div className="px-4 py-4 border-b border-[#232d27]">
+          <div className="text-[11px] uppercase tracking-[0.14em] text-[#7c8f86] mb-2">{me?.isStaff ? "Workspace" : "Team"}</div>
+          <TeamBlock />
+        </div>
+        <nav className="flex lg:flex-col gap-1 p-3 overflow-x-auto lg:overflow-visible flex-1">
+          {nav.map((n) => (
+            <NavLink key={n.href} {...n} />
+          ))}
+        </nav>
+        <div className="hidden lg:block p-4 text-[11px] leading-relaxed text-[#7c8f86] border-t border-[#232d27]">
+          Fictional demo data. Values are illustrative only and are not real physiological measurements.
+        </div>
+      </aside>
+
+      <div className="flex-1 min-w-0">
+        <header className="sticky top-0 z-10 bg-background/90 backdrop-blur border-b border-border">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-6 lg:px-10 h-14">
+            <span className="rounded-sm bg-[#b9793a]/15 text-[#7a4c1c] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider">Fictional demo data</span>
+            <UserMenu />
+          </div>
+        </header>
+        <main className="px-6 lg:px-10 py-8 max-w-[1400px] mx-auto">{children}</main>
       </div>
-    </RoleContext.Provider>
+    </div>
   );
 }
 
@@ -172,8 +219,8 @@ const STATUS_STYLE: Record<ReportStatus, string> = {
 
 export function StatusPill({ status }: { status: ReportStatus }) {
   return (
-    <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider", STATUS_STYLE[status])}>
-      {status}
+    <span className={cn("inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap", STATUS_STYLE[status])}>
+      {STATUS_LABEL[status]}
     </span>
   );
 }

@@ -15,7 +15,7 @@ import {
   type WidgetConfig,
   type WidgetSize,
 } from "../lib/dashboard";
-import { getAthlete } from "../lib/demo-data";
+import { useSquad } from "../hooks/use-squad";
 import { DrawerBody, SIZE_LABEL, WIDGETS, type DrawerState } from "./widgets";
 import { Drawer } from "./shell";
 import { cn } from "@/lib/utils";
@@ -29,6 +29,7 @@ function snapshot(w: WidgetConfig[]) {
 }
 
 export function CoachDashboard() {
+  const { getAthlete } = useSquad();
   const [widgets, setWidgets] = useState<WidgetConfig[]>(() => loadLayout());
   const [saved, setSaved] = useState(() => snapshot(loadLayout()));
   const [customised, setCustomised] = useState(() => hasSavedLayout());

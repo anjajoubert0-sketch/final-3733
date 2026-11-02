@@ -1,17 +1,13 @@
 import type { ReactNode } from "react";
 import { Link } from "wouter";
 import {
-  ATHLETES,
   BLOCKS,
-  FIXTURES,
   GROUP_FILTERS,
   MIN_GROUP_N,
   PEAKING_STATUSES,
-  PLANNED_TESTS,
   REST_COLOR,
   REST_LABEL,
   REST_STATUSES,
-  TEAM,
   aggText,
   changeText,
   classify,
@@ -20,7 +16,6 @@ import {
   fmtDate,
   fmtNum,
   fmtPace,
-  getAthlete,
   groupAvg,
   groupOf,
   isDueForRetest,
@@ -39,6 +34,7 @@ import {
 import { TESTING_PERIODS, type TestingPeriod, type WidgetConfig, type WidgetSize } from "../lib/dashboard";
 import { Donut, HBars, LineChart } from "./charts";
 import { SourceTag, StatusPill, TrendPill } from "./shell";
+import { useSquad } from "../hooks/use-squad";
 import { cn } from "@/lib/utils";
 
 export const GROUP_COLOR = { Forwards: "#2f5d46", Backs: "#b9793a" } as const;
@@ -79,6 +75,7 @@ function Tile({ label, value, unit, sub, accent, children }: { label: string; va
 // ---------- A. Team overview ----------
 
 export function OverviewWidget({ config }: WidgetProps) {
+  const { athletes: ATHLETES, team: TEAM } = useSquad();
   const s = teamStats(ATHLETES);
   const m = config.overviewMetrics ?? [];
   const cols = config.size === "S" ? "grid-cols-1" : config.size === "M" ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1 sm:grid-cols-2 xl:grid-cols-5";
@@ -101,6 +98,7 @@ export function OverviewWidget({ config }: WidgetProps) {
 // ---------- B. Physiological performance ----------
 
 export function PhysioWidget({ config, onChange }: WidgetProps) {
+  const { athletes: ATHLETES } = useSquad();
   const filter = config.filter ?? "All athletes";
   const period = config.period ?? "Latest result";
   const metrics = config.physioMetrics ?? [];
@@ -228,6 +226,7 @@ export function PhysioWidget({ config, onChange }: WidgetProps) {
 // ---------- C. Rest required ----------
 
 export function RestWidget({ config, openDrawer }: WidgetProps) {
+  const { athletes: ATHLETES } = useSquad();
   const counts = REST_STATUSES.map((s) => ({ s, n: ATHLETES.filter((a) => a.rest.status === s).length }));
   const flagged = ATHLETES.filter((a) => a.rest.status === "Red" || a.rest.status === "Amber");
   const small = config.size === "S";
@@ -291,6 +290,7 @@ const PEAK_COLOR: Record<PeakingStatus, string> = {
 };
 
 export function PeakingWidget({ config, openDrawer }: WidgetProps) {
+  const { athletes: ATHLETES } = useSquad();
   const counts = PEAKING_STATUSES.map((s) => ({ s, n: ATHLETES.filter((a) => a.peaking.status === s).length }));
   const watch = ATHLETES.filter((a) => a.peaking.status === "Competition ready — coach assessed" || a.peaking.status === "Potentially approaching peak" || a.peaking.status === "Tapering");
   const small = config.size === "S";
@@ -344,6 +344,7 @@ export function PeakingWidget({ config, openDrawer }: WidgetProps) {
 const TREND_ORDER: Trend[] = ["Improving", "Stable", "Mixed", "Requires investigation", "No comparison"];
 
 export function HistoryWidget({ config }: WidgetProps) {
+  const { athletes: ATHLETES, plannedTests: PLANNED_TESTS } = useSquad();
   const sessions = recentSessions(ATHLETES).slice(0, 3);
   const due = ATHLETES.filter(isDueForRetest);
   const notTested = ATHLETES.filter((a) => !a.tested);
@@ -416,13 +417,14 @@ export function HistoryWidget({ config }: WidgetProps) {
 
 // ---------- F. Team development ----------
 
-function paired(group: "Forwards" | "Backs") {
+function paired(ATHLETES: Athlete[], group: "Forwards" | "Backs") {
   return ATHLETES.filter((a) => groupOf(a) === group && a.prevTest === BLOCKS.mar && a.lastTest === BLOCKS.sep);
 }
 
 export function DevelopmentWidget({ config }: WidgetProps) {
-  const f = paired("Forwards");
-  const b = paired("Backs");
+  const { athletes: ATHLETES } = useSquad();
+  const f = paired(ATHLETES, "Forwards");
+  const b = paired(ATHLETES, "Backs");
   const mean = (xs: (number | undefined)[]) => {
     const v = xs.filter((x): x is number => x !== undefined);
     return v.length >= MIN_GROUP_N ? v.reduce((s, x) => s + x, 0) / v.length : undefined;
@@ -503,6 +505,7 @@ export function DevelopmentWidget({ config }: WidgetProps) {
 // ---------- G. Upcoming competitions ----------
 
 export function FixturesWidget({ config }: WidgetProps) {
+  const { fixtures: FIXTURES, plannedTests: PLANNED_TESTS } = useSquad();
   const upcoming = FIXTURES.filter((f) => daysUntil(f.date) >= 0);
   const next = upcoming[0];
   const wide = config.size !== "S";
@@ -552,6 +555,7 @@ export function FixturesWidget({ config }: WidgetProps) {
 // ---------- Squad table ----------
 
 export function SquadWidget({ config }: WidgetProps) {
+  const { athletes: ATHLETES } = useSquad();
   const compact = config.size !== "L";
   return (
     <div className="overflow-x-auto -mx-5">
@@ -611,6 +615,7 @@ export const SIZE_LABEL: Record<WidgetSize, string> = { S: "Small", M: "Medium",
 // ---------- drawer content ----------
 
 export function DrawerBody({ state, openDrawer }: { state: NonNullable<DrawerState>; openDrawer: (d: DrawerState) => void }) {
+  const { athletes: ATHLETES, getAthlete } = useSquad();
   if (state.kind === "athlete") {
     const a = getAthlete(state.id);
     if (!a) return <Empty text="Athlete not found." />;
@@ -694,6 +699,7 @@ function AthleteRows({ list, meta, note, onOpen }: { list: Athlete[]; meta: (a: 
 }
 
 function AthleteSupport({ a, back }: { a: Athlete; back?: () => void }) {
+  const { fixtures: FIXTURES } = useSquad();
   const t = classify(a);
   const next = FIXTURES.find((f) => daysUntil(f.date) >= 0);
   return (

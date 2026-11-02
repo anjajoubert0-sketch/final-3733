@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import {
-  ATHLETES,
   PEAKING_STATUSES,
   POSITIONS,
   POSITION_GROUP,
   REST_LABEL,
   REST_STATUSES,
-  TEAM,
   age,
   changeText,
   classify,
@@ -26,7 +24,9 @@ import {
   type PositionGroup,
   type RestStatus,
 } from "../lib/demo-data";
-import { Card, DemoTag, PageHeader, SourceTag, StatusPill, TrendPill, useRole } from "../components/shell";
+import { Card, DemoTag, PageHeader, SourceTag, StatusPill, TrendPill } from "../components/shell";
+import { useSquad } from "../hooks/use-squad";
+import { useViewerRole } from "../hooks/use-viewer";
 import { cn } from "@/lib/utils";
 
 type ColKey = "position" | "group" | "age" | "vo2" | "lt1" | "lt2" | "sweat" | "lastTest" | "rest" | "peaking" | "change" | "status";
@@ -103,7 +103,8 @@ function sortValue(a: Athlete, k: SortKey): string | number {
 const sel = "rounded-md border border-border bg-card px-3 py-2 text-[13.5px] min-w-0 w-full sm:w-auto";
 
 export default function AthletesPage() {
-  const { role } = useRole();
+  const role = useViewerRole();
+  const { athletes: ATHLETES, team: TEAM } = useSquad();
   // Filters survive a trip to a passport and back (session only).
   const [f, setF] = useState<Filters>(() => readJSON(typeof window !== "undefined" ? sessionStorage : undefined, FILTERS_KEY, DEFAULT_FILTERS));
   const [visible, setVisible] = useState<Record<ColKey, boolean>>(() => readJSON(typeof window !== "undefined" ? localStorage : undefined, COLS_KEY, DEFAULT_COLS));
@@ -150,14 +151,14 @@ export default function AthletesPage() {
       if (r === 0) return a.name < b.name ? -1 : 1;
       return f.asc ? r : -r;
     });
-  }, [f]);
+  }, [ATHLETES, f]);
 
   const toggleSort = (k: SortKey) => setF((p) => (p.sortKey === k ? { ...p, asc: !p.asc } : { ...p, sortKey: k, asc: k !== "lastTest" }));
   const toggleSel = (id: string) => setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   const allSel = rows.length > 0 && rows.every((r) => selected.includes(r.id));
 
-  // Coaches see measured values only from Approved or Published reports.
-  const hidden = (a: Athlete) => role === "Coach" && a.tested && !reportVisible(a);
+  // Coaches see measured values only from Published reports (the server strips the rest).
+  const hidden = (a: Athlete) => role !== "Practitioner" && a.tested && !reportVisible(a);
 
   const exportCsv = () => {
     const src = selected.length ? rows.filter((r) => selected.includes(r.id)) : rows;
@@ -256,9 +257,13 @@ export default function AthletesPage() {
         <button onClick={exportCsv} className="rounded-md border border-border bg-card px-3.5 py-2 text-[13px] font-semibold hover:bg-background">
           Export CSV {selected.length ? `(${selected.length} selected)` : `(${rows.length})`}
         </button>
-        {role === "Practitioner" && (
-          <Link href="/practitioner/test-entry" className="rounded-md bg-[#2f5d46] text-white px-3.5 py-2 text-[13px] font-semibold hover:bg-[#264d3a]">
+        {role === "Practitioner" ? (
+          <Link href="/practitioner/testing/entry" className="rounded-md bg-[#2f5d46] text-white px-3.5 py-2 text-[13px] font-semibold hover:bg-[#264d3a]">
             Enter test data
+          </Link>
+        ) : (
+          <Link href="/book" className="rounded-md bg-[#2f5d46] text-white px-3.5 py-2 text-[13px] font-semibold hover:bg-[#264d3a]">
+            Book Performance Testing
           </Link>
         )}
       </PageHeader>
@@ -433,7 +438,7 @@ export default function AthletesPage() {
         <span>
           Not tested = no test on record. — = value not measured. Rest required and possible peaking are entered by coaching staff and are not derived from VO₂max or
           lactate.
-          {role === "Coach" && " Pending release = report not yet Approved or Published by the practitioner."}
+          {role !== "Practitioner" && " Pending release = results not yet published by the practitioner (analysis and payment both complete)."}
         </span>
       </div>
     </div>

@@ -16,6 +16,10 @@
 		"isolatedModules": true,
 		"moduleDetection": "force",
 		"noEmit": true,
+		/* The web check follows the typed API import into src/api, which runs on Bun */
+		"types": [
+			"bun"
+		],
 		"jsx": "react-jsx",
 		/* Linting */
 		"strict": true,

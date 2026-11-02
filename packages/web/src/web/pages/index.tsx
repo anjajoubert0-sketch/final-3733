@@ -1,9 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import {
-  ATHLETES,
   GROUP_FILTERS,
-  TEAM,
   aggText,
   changeText,
   classify,
@@ -12,7 +10,6 @@ import {
   fmtNum,
   fmtPace,
   filterAthletes,
-  getAthlete,
   groupOf,
   isDueForRetest,
   paceText,
@@ -20,24 +17,25 @@ import {
   trendTone,
   type GroupFilter,
 } from "../lib/demo-data";
-import { Card, DemoTag, StatusPill, SummaryCard, TrendPill, useRole } from "../components/shell";
+import { Card, DemoTag, StatusPill, SummaryCard, TrendPill } from "../components/shell";
+import { useSquad } from "../hooks/use-squad";
 import { Donut, HBars, Histogram } from "../components/charts";
 import { CoachDashboard } from "../components/coach-dashboard";
 import { GROUP_COLOR } from "../components/widgets";
 
+// Coach home. The old practitioner dashboard is hidden (practitioners land on /practitioner) but kept below.
 function Index() {
-  const { role } = useRole();
   return (
     <div>
       <TeamBand />
-      {role === "Coach" ? <CoachDashboard /> : <PractitionerDashboard />}
+      <CoachDashboard />
     </div>
   );
 }
 
-function TeamBand() {
-  const nextIn = daysSince(TEAM.nextTestingDate) * -1;
-  const { role } = useRole();
+function TeamBand({ role = "Coach" }: { role?: "Coach" | "Practitioner" }) {
+  const { team: TEAM, athletes: ATHLETES } = useSquad();
+  const nextIn = TEAM.nextTestingDate ? daysSince(TEAM.nextTestingDate) * -1 : undefined;
   return (
     <section className="topo rounded-[12px] text-[#f5f4ef] p-6 lg:p-8 mb-6 fade-up relative overflow-hidden">
       <div className="flex flex-wrap items-start justify-between gap-6">
@@ -54,12 +52,13 @@ function TeamBand() {
         <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-[13px]">
           <div>
             <div className="uppercase tracking-[0.14em] text-[11px] text-[#9fb3a4]">Last testing date</div>
-            <div className="font-display text-[20px] num">{fmtDate(TEAM.lastTestingDate)}</div>
+            <div className="font-display text-[20px] num">{TEAM.lastTestingDate ? fmtDate(TEAM.lastTestingDate) : "Not tested"}</div>
           </div>
           <div>
             <div className="uppercase tracking-[0.14em] text-[11px] text-[#9fb3a4]">Next scheduled testing</div>
             <div className="font-display text-[20px] num">
-              {fmtDate(TEAM.nextTestingDate)} <span className="text-[13px] text-[#c9d8c4] font-sans">in {nextIn} days</span>
+              {TEAM.nextTestingDate ? fmtDate(TEAM.nextTestingDate) : "Not scheduled"}{" "}
+              {nextIn !== undefined && <span className="text-[13px] text-[#c9d8c4] font-sans">in {nextIn} days</span>}
             </div>
           </div>
         </div>
@@ -68,12 +67,15 @@ function TeamBand() {
   );
 }
 
-function PractitionerDashboard() {
+/** Hidden in Stage 1 (replaced by the practitioner hub). Kept for the later practitioner dashboard. */
+export function PractitionerDashboard() {
+  const { athletes: ATHLETES, getAthlete } = useSquad();
   const [filter, setFilter] = useState<GroupFilter>("All athletes");
   const [previewId, setPreviewId] = useState("f01");
-  const list = useMemo(() => filterAthletes(ATHLETES, filter), [filter]);
+  const list = useMemo(() => filterAthletes(ATHLETES, filter), [ATHLETES, filter]);
   const s = teamStats(list);
   const preview = getAthlete(previewId) ?? ATHLETES[0];
+
   const dueList = list.filter(isDueForRetest);
   const notTested = list.filter((a) => !a.tested);
   const reviewQueue = list.filter((a) => a.status === "Draft" || a.status === "Under review");

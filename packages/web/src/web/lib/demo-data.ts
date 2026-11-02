@@ -2,7 +2,14 @@
 // Shaped like the data model in the brief (teams, athletes, memberships, test sessions,
 // results, reports, recovery and peaking assessments) so the prototype can later be wired to a real backend.
 
-export const TODAY = "2026-10-21";
+// Seed data below was authored against this date; the seed shifts relative dates (fixtures, assessments,
+// training) so they stay current. Official test dates (Mar / Sep 2026 blocks) are fixed.
+export const SEED_AUTHORED_ON = "2026-10-21";
+function localIso(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+/** Today's date (real clock), ISO YYYY-MM-DD. */
+export const TODAY = localIso();
 export const MIN_GROUP_N = 5; // POPIA small-group rule: suppress aggregates below this n
 
 export type Position =
@@ -41,12 +48,21 @@ export const REST_LABEL: Record<RestStatus, string> = {
   Grey: "Insufficient information",
 };
 
+export type PaymentStatus = "unpaid" | "paid_card" | "verified_admin" | "waived" | "demo";
+
 export interface TestRecord {
   id: string;
   date: string;
   type: TestType;
   status: ReportStatus;
   protocol: string;
+  paymentStatus?: PaymentStatus;
+}
+
+export interface SharingSwitches {
+  testing: boolean;
+  training: boolean;
+  wellness: boolean;
 }
 
 export interface Assessment<T> {
@@ -58,12 +74,18 @@ export interface Assessment<T> {
 export interface Athlete {
   id: string;
   name: string;
-  sex: "F" | "M";
-  dob: string;
-  heightCm: number;
-  weightKg: number;
+  sex?: "F" | "M";
+  dob?: string;
+  heightCm?: number;
+  weightKg?: number;
   position: Position;
-  experience: string;
+  experience?: string;
+  sport?: string;
+  squadNumber?: number;
+  /** True when an Individual account owns this passport. */
+  claimed?: boolean;
+  /** What this viewer may see (coach view). Undefined = full access for this viewer. */
+  share?: SharingSwitches;
   goals: string[];
   tested: boolean;
   lastTest?: string;
@@ -86,7 +108,8 @@ export interface Athlete {
   peaking: Assessment<PeakingStatus>; // Coach assessment (demo)
 }
 
-export const TEAM = {
+/** Seed source for the demo team (the live team comes from the API). */
+export const SEED_TEAM = {
   id: "bigboys-rugby",
   name: "BigBoys Rugby",
   label: "Fictional demo squad",
@@ -130,7 +153,8 @@ export const POSITION_GROUP: Record<Position, PositionGroup> = {
   Fullback: "Backs",
 };
 
-const RAW: Omit<Athlete, "tests" | "rest" | "peaking">[] = [
+type SeedAthlete = Omit<Athlete, "tests" | "rest" | "peaking"> & { sex: "F" | "M"; dob: string; heightCm: number; weightKg: number; experience: string };
+const RAW: SeedAthlete[] = [
   // Forwards
   { id: "f01", name: "Thabo Mokoena", sex: "M", dob: "1999-05-14", heightCm: 183, weightKg: 112, position: "Loosehead prop", experience: "8 years", goals: ["Scrum stability under load", "Sustain 80 min work rate"], tested: true, lastTest: "2026-09-12", prevTest: "2026-03-14", vo2: 53.1, vo2Prev: 52.4, lt1Pace: 392, lt1PacePrev: 398, lt1Hr: 147, lt2Pace: 318, lt2PacePrev: 326, lt2Hr: 172, sweatRate: 1.6, sodium: 52, status: "Published", zonesSet: true },
   { id: "f02", name: "Ruan Pretorius", sex: "M", dob: "2002-02-20", heightCm: 181, weightKg: 108, position: "Loosehead prop", experience: "5 years", goals: ["Maintain scrum output in the final 20 min"], tested: true, lastTest: "2026-09-12", prevTest: "2026-03-14", vo2: 51.8, vo2Prev: 52.6, lt1Pace: 388, lt1PacePrev: 388, lt1Hr: 149, lt2Pace: 330, lt2PacePrev: 327, lt2Hr: 176, status: "Approved", zonesSet: true },
@@ -166,7 +190,7 @@ const RAW: Omit<Athlete, "tests" | "rest" | "peaking">[] = [
 ];
 
 // Demo assessments. Coach-entered, labelled as such in the UI. Never derived from test values.
-const ASSESS: Record<string, { rest: Assessment<RestStatus>; peaking: Assessment<PeakingStatus> }> = {
+export const SEED_ASSESS: Record<string, { rest: Assessment<RestStatus>; peaking: Assessment<PeakingStatus> }> = {
   f01: { rest: { status: "Green", assessedOn: "2026-10-19" }, peaking: { status: "Building", assessedOn: "2026-10-19" } },
   f02: { rest: { status: "Green", assessedOn: "2026-10-19" }, peaking: { status: "Maintaining", assessedOn: "2026-10-19" } },
   f03: { rest: { status: "Green", assessedOn: "2026-10-19" }, peaking: { status: "Potentially approaching peak", assessedOn: "2026-10-19" } },
@@ -199,11 +223,11 @@ const ASSESS: Record<string, { rest: Assessment<RestStatus>; peaking: Assessment
   b14: { rest: { status: "Grey" }, peaking: { status: "Insufficient data" } },
 };
 
-const PROTOCOL_LT = "Incremental treadmill, 4 min stages, 1.0 km/h steps, capillary lactate at stage end (demo)";
-const PROTOCOL_VO2 = "Incremental treadmill to exhaustion, breath-by-breath gas analysis (demo)";
-const PROTOCOL_SWEAT = "Patch sweat test, 60 min run at fixed intensity, ambient conditions logged (demo)";
+export const PROTOCOL_LT = "Incremental treadmill, 4 min stages, 1.0 km/h steps, capillary lactate at stage end (demo)";
+export const PROTOCOL_VO2 = "Incremental treadmill to exhaustion, breath-by-breath gas analysis (demo)";
+export const PROTOCOL_SWEAT = "Patch sweat test, 60 min run at fixed intensity, ambient conditions logged (demo)";
 
-function makeTests(a: Omit<Athlete, "tests" | "rest" | "peaking">): TestRecord[] {
+function makeTests(a: SeedAthlete): TestRecord[] {
   if (!a.tested || !a.lastTest) return [];
   const tests: TestRecord[] = [];
   if (a.prevTest) {
@@ -218,11 +242,12 @@ function makeTests(a: Omit<Athlete, "tests" | "rest" | "peaking">): TestRecord[]
   return tests;
 }
 
-export const ATHLETES: Athlete[] = RAW.map((a) => ({
+/** Seed source only — pages get athletes from the API through useSquad(). */
+export const SEED_ATHLETES: (Athlete & SeedAthlete)[] = RAW.map((a) => ({
   ...a,
   tests: makeTests(a),
-  rest: ASSESS[a.id].rest,
-  peaking: ASSESS[a.id].peaking,
+  rest: SEED_ASSESS[a.id].rest,
+  peaking: SEED_ASSESS[a.id].peaking,
 }));
 
 // Fictional fixtures (demo dates only).
@@ -232,13 +257,13 @@ export interface Fixture {
   venue: "Home" | "Away";
   competition: string;
 }
-export const FIXTURES: Fixture[] = [
+export const SEED_FIXTURES: Fixture[] = [
   { date: "2026-10-31", opponent: "Northern Ridge RFC (fictional)", venue: "Home", competition: "Demo League · Round 7" },
   { date: "2026-11-07", opponent: "Harbour Town XV (fictional)", venue: "Away", competition: "Demo League · Round 8" },
   { date: "2026-11-14", opponent: "Mountain Sevens (fictional)", venue: "Home", competition: "Demo Cup · Quarter-final" },
   { date: "2026-11-28", opponent: "Coastal Barbarians (fictional)", venue: "Away", competition: "Demo League · Round 9" },
 ];
-export const PLANNED_TESTS: { date: string; label: string }[] = [
+export const SEED_PLANNED_TESTS: { date: string; label: string }[] = [
   { date: "2026-11-16", label: "Squad lactate and VO₂max block (fictional)" },
   { date: "2027-01-18", label: "Mid-season sweat testing (fictional)" },
 ];
@@ -246,12 +271,15 @@ export const PLANNED_TESTS: { date: string; label: string }[] = [
 export const GROUP_FILTERS = ["All athletes", "Forwards", "Backs", ...POSITIONS] as const;
 export type GroupFilter = (typeof GROUP_FILTERS)[number];
 
-export function getAthlete(id: string | undefined) {
-  return ATHLETES.find((a) => a.id === id);
+export function shiftIso(iso: string, days: number) {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return localIso(d);
 }
 
-export function getTest(athlete: Athlete, testId: string | undefined) {
-  return athlete.tests.find((t) => t.id === testId);
+/** Days between the seed's authored date and today, used to keep relative demo dates current. */
+export function seedOffsetDays() {
+  return Math.round((new Date(TODAY + "T00:00:00").getTime() - new Date(SEED_AUTHORED_ON + "T00:00:00").getTime()) / 86400000);
 }
 
 // ---------- formatting ----------
@@ -273,7 +301,8 @@ export function fmtNum(v?: number, digits = 1) {
   return v === undefined || v === null ? "—" : v.toFixed(digits);
 }
 
-export function age(dob: string) {
+export function age(dob?: string) {
+  if (!dob) return undefined;
   const d = new Date(dob + "T00:00:00");
   const t = new Date(TODAY + "T00:00:00");
   let a = t.getFullYear() - d.getFullYear();
@@ -303,19 +332,50 @@ export function groupOf(a: Athlete): PositionGroup {
   return POSITION_GROUP[a.position];
 }
 
-export function reportVisible(a: Athlete) {
-  return a.status === "Published" || a.status === "Approved";
+/** "Forwards" / "Backs" for rugby positions, "—" for anything else (individual sports). */
+export function groupLabel(a: Athlete): string {
+  return POSITION_GROUP[a.position] ?? "—";
 }
+
+/** Coaches and athletes only ever see Published results (payment verified + practitioner published). */
+export function reportVisible(a: Athlete) {
+  return a.status === "Published";
+}
+
+export const STATUS_LABEL: Record<ReportStatus, string> = {
+  Draft: "Results uploaded",
+  "Under review": "Under review",
+  Approved: "Analysis complete",
+  Published: "Published",
+};
+
+export const PAYMENT_LABEL: Record<PaymentStatus, string> = {
+  unpaid: "Not paid",
+  paid_card: "Paid (card)",
+  verified_admin: "Verified by admin",
+  waived: "Waived",
+  demo: "Verified (demo, no charge)",
+};
+
+export const paymentVerified = (p?: PaymentStatus) => p !== undefined && p !== "unpaid";
 
 export interface ChangeThresholds {
   vo2: number; // ml/kg/min
   lt2: number; // sec/km
 }
 export const DEFAULT_THRESHOLDS: ChangeThresholds = { vo2: 1.0, lt2: 3 };
+// Practitioner-set thresholds, loaded from the API (useSquad keeps this in sync).
+let currentThresholds: ChangeThresholds = { ...DEFAULT_THRESHOLDS };
+export function setCurrentThresholds(t: ChangeThresholds) {
+  currentThresholds = { ...t };
+}
+export function getCurrentThresholds() {
+  return currentThresholds;
+}
 
 export type Trend = "Improving" | "Stable" | "Requires investigation" | "Mixed" | "No comparison";
 
-export function classify(a: Athlete, t: ChangeThresholds = DEFAULT_THRESHOLDS): Trend {
+export function classify(a: Athlete, t: ChangeThresholds = currentThresholds): Trend {
   if (a.vo2 === undefined || a.vo2Prev === undefined || a.lt2Pace === undefined || a.lt2PacePrev === undefined) {
     return "No comparison";
   }

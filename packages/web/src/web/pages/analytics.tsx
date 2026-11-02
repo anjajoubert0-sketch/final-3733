@@ -1,12 +1,10 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import {
-  ATHLETES,
-  DEFAULT_THRESHOLDS,
+  getCurrentThresholds,
   MIN_GROUP_N,
   POSITIONS,
   POSITION_GROUP,
-  TEAM,
   aggText,
   classify,
   fmtDate,
@@ -16,6 +14,7 @@ import {
   isDueForRetest,
   teamStats,
   trendTone,
+  type Athlete,
   type ChangeThresholds,
   type GroupFilter,
   type Position,
@@ -23,17 +22,19 @@ import {
 } from "../lib/demo-data";
 import { Card, DemoTag, PageHeader, SummaryCard, TrendPill } from "../components/shell";
 import { Histogram } from "../components/charts";
+import { useSquad } from "../hooks/use-squad";
 
 const avg = (xs: number[]) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : undefined);
 
 type Mode = "All" | "Forwards" | "Backs" | "Position";
 
 export default function AnalyticsPage() {
+  const { athletes: ATHLETES, team: TEAM } = useSquad();
   const [mode, setMode] = useState<Mode>("All");
   const [position, setPosition] = useState<Position>("Loosehead prop");
   const group: GroupFilter = mode === "All" ? "All athletes" : mode === "Position" ? position : mode;
-  const [thr, setThr] = useState<ChangeThresholds>(DEFAULT_THRESHOLDS);
-  const list = useMemo(() => filterAthletes(ATHLETES, group), [group]);
+  const [thr, setThr] = useState<ChangeThresholds>(() => getCurrentThresholds());
+  const list = useMemo(() => filterAthletes(ATHLETES, group), [ATHLETES, group]);
   const s = teamStats(list);
 
   // Team development: athletes with a previous and latest value on the same protocol
@@ -315,7 +316,7 @@ function DevList({
   dueList,
 }: {
   title: string;
-  items: (typeof ATHLETES)[number][];
+  items: Athlete[];
   dueList?: boolean;
 }) {
   return (
