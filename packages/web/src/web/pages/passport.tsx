@@ -1,13 +1,12 @@
+import { useState } from "react";
 import { Link, useParams } from "wouter";
 import {
-  TEAM,
   age,
   changeText,
   classify,
   fmtDate,
   fmtNum,
   fmtPace,
-  getAthlete,
   interpretation,
   isDueForRetest,
   reportVisible,
@@ -15,35 +14,94 @@ import {
   zones,
   daysSince,
   daysUntil,
-  groupOf,
   peakTone,
   restTone,
-  FIXTURES,
+  groupLabel,
   REST_LABEL,
 } from "../lib/demo-data";
 import { Card, DemoTag, PageHeader, SourceTag, Stat, StatusPill, TrendPill } from "../components/shell";
-import { useRole } from "../components/shell";
+import { useAthlete, type AthleteDetail } from "../hooks/use-squad";
+import { useViewerRole, type ViewerRole } from "../hooks/use-viewer";
+import { Loading, btn } from "../components/empty-states";
+import { TrainingLog } from "../components/training-log";
+import { WellnessLog } from "../components/wellness-log";
+import { errorMessage } from "../lib/api";
 import { LineChart } from "../components/charts";
 
 const Unmeasured = ({ label = "Not measured" }: { label?: string }) => <span className="text-muted-foreground">{label}</span>;
 
 export default function PassportPage() {
   const params = useParams<{ id: string }>();
-  const a = getAthlete(params.id);
-  const { role } = useRole();
+  const q = useAthlete(params.id);
+  const role = useViewerRole();
+  const [tab, setTab] = useState<"passport" | "training" | "wellness">("passport");
+  const back = role === "Practitioner" ? { href: "/practitioner/testing", label: "Testing management" } : { href: "/athletes", label: "Team athletes" };
 
-  if (!a) {
+  if (q.isPending) return <Loading label="Loading passport" />;
+  if (!q.data) {
     return (
       <div className="py-16 text-center">
-        <h1 className="font-display text-[36px] uppercase">Athlete not found</h1>
-        <p className="text-muted-foreground mt-2">No passport exists for this id in the demo team.</p>
-        <Link href="/athletes" className="inline-block mt-4 text-[#2f5d46] font-semibold hover:underline">
-          Back to team athletes
+        <h1 className="font-display text-[36px] uppercase">Passport not available</h1>
+        <p className="text-muted-foreground mt-2">{errorMessage(q.error, "No passport exists for this id.")}</p>
+        <Link href={back.href} className="inline-block mt-4 text-[#2f5d46] font-semibold hover:underline">
+          Back to {back.label.toLowerCase()}
         </Link>
       </div>
     );
   }
+  const a = q.data.athlete;
+  const tabs = [
+    { id: "passport", label: "Passport" },
+    { id: "training", label: "Training" },
+    { id: "wellness", label: "Wellness" },
+  ] as const;
 
+  return (
+    <div>
+      <nav className="flex flex-wrap items-center gap-3 text-[12.5px] text-muted-foreground mb-3">
+        <Link href={back.href} className="rounded-md border border-border bg-card px-2.5 py-1 font-semibold text-foreground hover:bg-background">
+          ← Back to {back.label.toLowerCase()}
+        </Link>
+        <span>
+          <Link href={back.href} className="hover:underline">
+            {back.label}
+          </Link>{" "}
+          / <span className="text-foreground">{a.name}</span>
+        </span>
+      </nav>
+
+      <PageHeader eyebrow="Athlete passport" title={a.name}>
+        {a.tested && <StatusPill status={a.status} />}
+        {a.tested && isDueForRetest(a) && <TrendPill tone="ochre" label="Due for retest" />}
+        <DemoTag />
+      </PageHeader>
+
+      <div role="tablist" className="mb-6 flex gap-1 border-b border-border">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-4 py-2 -mb-px border-b-2 text-[14px] font-semibold ${tab === t.id ? "border-[#2f5d46] text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "passport" && <PassportView detail={q.data} role={role} />}
+      {tab === "training" && <TrainingLog athleteId={a.id} />}
+      {tab === "wellness" && <WellnessLog athleteId={a.id} />}
+    </div>
+  );
+}
+
+/** The passport cards. Shared by the coach/practitioner passport and the individual's My Passport. */
+export function PassportView({ detail, role }: { detail: AthleteDetail; role: ViewerRole }) {
+  const a = detail.athlete;
+  const TEAM = detail.team;
+  const FIXTURES = detail.fixtures;
   const trend = classify(a);
   const dueDays = daysSince(a.lastTest);
   const ltTests = a.tests.filter((t) => t.type === "Lactate threshold");
@@ -55,33 +113,16 @@ export default function PassportPage() {
   const latestVo2 = vo2Tests[vo2Tests.length - 1];
   const sweatTest = a.tests.find((t) => t.type === "Sweat");
   // Coaches see results only from Approved or Published reports.
-  const hidden = role === "Coach" && a.tested && !reportVisible(a);
+  const hidden = role !== "Practitioner" && a.tested && !reportVisible(a);
   const nextMatch = FIXTURES.find((f) => daysUntil(f.date) >= 0);
 
   return (
     <div>
-      <nav className="flex flex-wrap items-center gap-3 text-[12.5px] text-muted-foreground mb-3">
-        <Link href="/athletes" className="rounded-md border border-border bg-card px-2.5 py-1 font-semibold text-foreground hover:bg-background">
-          ← Back to team athletes
-        </Link>
-        <span>
-          <Link href="/athletes" className="hover:underline">
-            Team athletes
-          </Link>{" "}
-          / <span className="text-foreground">{a.name}</span>
-        </span>
-      </nav>
-
-      <PageHeader eyebrow="Athlete passport" title={a.name}>
-        <StatusPill status={a.status} />
-        {a.tested && isDueForRetest(a) && <TrendPill tone="ochre" label="Due for retest" />}
-        <DemoTag />
-      </PageHeader>
-
       {role === "Coach" && (
         <div className="mb-6 rounded-[10px] border border-[#b9793a]/40 bg-[#b9793a]/10 p-4 text-[13.5px] text-[#5e3c17]">
-          <strong>Coach view.</strong> Full passport access depends on the athlete's sharing consent. Raw data is read-only, and only
-          published reports are visible. Demo: consent granted for team coaching.
+          <strong>Coach view.</strong> What you see depends on the athlete's sharing choices. Results appear only after Vert &amp; Dirt publishes
+          them (analysis complete and payment verified). Testing: {a.share?.testing ? "shared" : "not shared"} · Training:{" "}
+          {a.share?.training ? "shared" : "not shared"} · Wellness: {a.share?.wellness ? "shared" : "not shared"}.
         </div>
       )}
 
@@ -99,25 +140,26 @@ export default function PassportPage() {
               <div>
                 <div className="font-display text-[22px] uppercase leading-tight">{a.name}</div>
                 <div className="text-[13px] text-muted-foreground">
-                  {a.position} · {groupOf(a)}
+                  {a.position} · {groupLabel(a)}
                 </div>
               </div>
             </div>
             <dl className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3 text-[13px]">
-              <Field label="Date of birth" value={`${fmtDate(a.dob)} (${age(a.dob)} y)`} />
-              <Field label="Sex" value={a.sex === "F" ? "Female" : "Male"} />
-              <Field label="Height" value={`${a.heightCm} cm`} />
-              <Field label="Weight" value={`${a.weightKg} kg`} />
-              <Field label="Sport" value={TEAM.sport} />
-              <Field label="Team" value={TEAM.name} />
+              <Field label="Date of birth" value={a.dob ? `${fmtDate(a.dob)} (${age(a.dob)} y)` : "Not recorded"} />
+              <Field label="Sex" value={a.sex === "F" ? "Female" : a.sex === "M" ? "Male" : "Not recorded"} />
+              <Field label="Height" value={a.heightCm ? `${a.heightCm} cm` : "Not recorded"} />
+              <Field label="Weight" value={a.weightKg ? `${a.weightKg} kg` : "Not recorded"} />
+              <Field label="Sport" value={a.sport ?? TEAM?.sport ?? "—"} />
+              <Field label="Team" value={TEAM?.name ?? "No team"} />
               <Field label="Position" value={a.position} />
-              <Field label="Position group" value={groupOf(a)} />
-              <Field label="Coach" value={`${TEAM.headCoach} (demo)`} />
-              <Field label="Experience" value={a.experience} />
+              <Field label="Position group" value={groupLabel(a)} />
+              <Field label="Coach" value={TEAM ? TEAM.headCoach : "—"} />
+              <Field label="Experience" value={a.experience ?? "Not recorded"} />
             </dl>
             <div className="mt-5 border-t border-border/70 pt-4">
               <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground font-semibold mb-2">Current goals</div>
               <ul className="list-disc pl-5 text-[13.5px] space-y-1">
+                {a.goals.length === 0 && <li className="list-none -ml-5 text-muted-foreground">Not recorded</li>}
                 {a.goals.map((g) => (
                   <li key={g}>{g}</li>
                 ))}
@@ -126,21 +168,27 @@ export default function PassportPage() {
           </Card>
 
           <Card title="Consent and sharing" right={<DemoTag />}>
-            <ul className="space-y-2 text-[13px]">
-              <li className="flex justify-between gap-3">
-                <span>Coach access (team)</span>
-                <span className="font-semibold text-[#2f5d46]">Granted</span>
-              </li>
-              <li className="flex justify-between gap-3">
-                <span>Team-level anonymised analytics</span>
-                <span className="font-semibold text-[#2f5d46]">Granted</span>
-              </li>
-              <li className="flex justify-between gap-3">
-                <span>Named in team report</span>
-                <span className="font-semibold text-muted-foreground">Not granted</span>
-              </li>
-            </ul>
-            <p className="mt-3 text-[12px] text-muted-foreground">Athletes can revoke sharing at any time. Revocation UI is not part of this prototype.</p>
+            {a.share ? (
+              <ul className="space-y-2 text-[13px]">
+                {(
+                  [
+                    ["Published testing", a.share.testing],
+                    ["Training", a.share.training],
+                    ["Wellness & recovery", a.share.wellness],
+                  ] as const
+                ).map(([k, v]) => (
+                  <li key={k} className="flex justify-between gap-3">
+                    <span>{k}</span>
+                    <span className={v ? "font-semibold text-[#2f5d46]" : "font-semibold text-muted-foreground"}>{v ? "Shared" : "Not shared"}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-[13px]">{role === "Practitioner" ? "Practitioner access: full official testing record." : "Your own passport. Manage team sharing in Settings."}</p>
+            )}
+            <p className="mt-3 text-[12px] text-muted-foreground">
+              {a.claimed ? "Managed by the athlete. They can change sharing or leave the team at any time." : "Not yet claimed. Managed by the coach on the athlete's behalf."}
+            </p>
           </Card>
         </div>
 
@@ -158,7 +206,12 @@ export default function PassportPage() {
             {!a.tested ? (
               <div className="py-6 text-center">
                 <div className="font-display text-[28px] uppercase">Not tested</div>
-                <p className="text-muted-foreground text-[13.5px] mt-1">Baseline testing has not been completed. No values are shown.</p>
+                <p className="text-muted-foreground text-[13.5px] mt-1">No physiological testing data available yet.</p>
+                {role !== "Practitioner" && (
+                  <Link href="/book" className={btn("ochre", "mt-4")}>
+                    {role === "Individual" ? "Book My First Test" : "Book Performance Testing"}
+                  </Link>
+                )}
               </div>
             ) : hidden ? (
               <PendingNote status={a.status} />
@@ -365,7 +418,7 @@ export default function PassportPage() {
               </ul>
             ) : (
               <p className="text-muted-foreground text-[13.5px]">
-                {a.tested ? "Recommendations are pending practitioner approval. Nothing is shared until the report is Approved or Published." : "Insufficient data: no recommendations until a test is completed and approved."}
+                {a.tested ? "Recommendations are released with the published report." : "Insufficient data: no recommendations until a test is completed and published."}
               </p>
             )}
           </Card>
@@ -384,7 +437,7 @@ export default function PassportPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     <StatusPill status={t.status} />
-                    {(t.type === "Lactate threshold" || t.type === "VO2 max") && (role !== "Coach" || t.status === "Published" || t.status === "Approved") && (
+                    {(t.type === "Lactate threshold" || t.type === "VO2 max") && (role === "Practitioner" || t.status === "Published") && (
                       <Link href={`/athletes/${a.id}/tests/${t.id}`} className="text-[13px] font-semibold text-[#2f5d46] hover:underline">
                         Open report →
                       </Link>
@@ -396,7 +449,7 @@ export default function PassportPage() {
           </Card>
 
           {!visibleLt && a.tested && (
-            <p className="text-[12.5px] text-muted-foreground">Reports in Draft or Under review are not visible to coaches or athletes.</p>
+            <p className="text-[12.5px] text-muted-foreground">Unpublished reports are not visible to coaches or athletes.</p>
           )}
           <p className="text-[12.5px] text-muted-foreground">
             VO₂ tests on record: {vo2Tests.length}. Lactate tests on record: {ltTests.length}. Previous LT test: {prevLt ? fmtDate(prevLt.date) : "none"}.
@@ -407,12 +460,12 @@ export default function PassportPage() {
   );
 }
 
-function PendingNote({ status, compact }: { status: string; compact?: boolean }) {
+function PendingNote({ compact }: { status?: string; compact?: boolean }) {
   return (
     <div className={compact ? "py-1" : "py-6 text-center"}>
-      <div className={compact ? "text-[13px] font-semibold uppercase tracking-wide" : "font-display text-[24px] uppercase"}>Report not yet released</div>
+      <div className={compact ? "text-[13px] font-semibold uppercase tracking-wide" : "font-display text-[24px] uppercase"}>Pending release</div>
       <p className="text-muted-foreground text-[13px] mt-1">
-        Status: {status}. Coaches only see results from Approved or Published reports.
+        Pending release. Results appear once analysis is complete, payment is verified and Vert &amp; Dirt publishes them.
       </p>
     </div>
   );
