@@ -21,7 +21,7 @@ import {
 } from "../lib/demo-data";
 import { Card, DemoTag, PageHeader, SourceTag, Stat, StatusPill, TrendPill } from "../components/shell";
 import { useAthlete, type AthleteDetail } from "../hooks/use-squad";
-import { useViewerRole, type ViewerRole } from "../hooks/use-viewer";
+import { testHref, useViewerRole, type ViewerRole } from "../hooks/use-viewer";
 import { Loading, btn } from "../components/empty-states";
 import { TrainingLog } from "../components/training-log";
 import { WellnessLog } from "../components/wellness-log";
@@ -208,7 +208,7 @@ export function PassportView({ detail, role }: { detail: AthleteDetail; role: Vi
                 <div className="font-display text-[28px] uppercase">Not tested</div>
                 <p className="text-muted-foreground text-[13.5px] mt-1">No physiological testing data available yet.</p>
                 {role !== "Practitioner" && (
-                  <Link href="/book" className={btn("ochre", "mt-4")}>
+                  <Link href={role === "Individual" ? "/me/book" : "/book"} className={btn("ochre", "mt-4")}>
                     {role === "Individual" ? "Book My First Test" : "Book Performance Testing"}
                   </Link>
                 )}
@@ -287,7 +287,7 @@ export function PassportView({ detail, role }: { detail: AthleteDetail; role: Vi
                     <Field label="Previous LT2" value={a.lt2PacePrev ? `${fmtPace(a.lt2PacePrev)}/km` : "—"} />
                   </dl>
                   <p className="text-[11.5px] text-muted-foreground mt-3">{latestLt.protocol}</p>
-                  <Link href={`/athletes/${a.id}/tests/${latestLt.id}`} className="inline-block mt-2 text-[13px] font-semibold text-[#2f5d46] hover:underline">
+                  <Link href={testHref(role, a.id, latestLt.id)} className="inline-block mt-2 text-[13px] font-semibold text-[#2f5d46] hover:underline">
                     Open lactate report →
                   </Link>
                 </>
@@ -307,7 +307,7 @@ export function PassportView({ detail, role }: { detail: AthleteDetail; role: Vi
                     <Field label="Previous date" value={fmtDate(a.prevTest)} />
                   </dl>
                   <p className="text-[11.5px] text-muted-foreground mt-3">{latestVo2.protocol}</p>
-                  <Link href={`/athletes/${a.id}/tests/${latestVo2.id}`} className="inline-block mt-2 text-[13px] font-semibold text-[#2f5d46] hover:underline">
+                  <Link href={testHref(role, a.id, latestVo2.id)} className="inline-block mt-2 text-[13px] font-semibold text-[#2f5d46] hover:underline">
                     Open VO₂ report →
                   </Link>
                 </>
@@ -438,7 +438,7 @@ export function PassportView({ detail, role }: { detail: AthleteDetail; role: Vi
                   <div className="flex items-center gap-3">
                     <StatusPill status={t.status} />
                     {(t.type === "Lactate threshold" || t.type === "VO2 max") && (role === "Practitioner" || t.status === "Published") && (
-                      <Link href={`/athletes/${a.id}/tests/${t.id}`} className="text-[13px] font-semibold text-[#2f5d46] hover:underline">
+                      <Link href={testHref(role, a.id, t.id)} className="text-[13px] font-semibold text-[#2f5d46] hover:underline">
                         Open report →
                       </Link>
                     )}

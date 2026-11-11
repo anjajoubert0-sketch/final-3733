@@ -1,71 +1,165 @@
-import { useState } from "react";
-import { ATHLETES, TEAM, fmtDate, type TestType } from "../lib/demo-data";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useParams } from "wouter";
+import { type TestType } from "../lib/demo-data";
 import { Card, DemoTag, PageHeader, StatusPill } from "../components/shell";
+import { useAllAthletes } from "../queries/practitioner";
+import { useCreateTest, useTest, useUpdateTest } from "../queries/tests";
+import { ErrorNote, Loading, btn, inputCls } from "../components/empty-states";
+import { PaymentBadge } from "../components/payment-badge";
 
-interface StageRow {
-  speed: string;
-  hr: string;
-  lactate: string;
-  rpe: string;
-}
-
+type StageRow = { speed: string; hr: string; lactate: string; rpe: string };
 const EMPTY_STAGE: StageRow = { speed: "", hr: "", lactate: "", rpe: "" };
-const PROTOCOLS: Record<TestType, string[]> = {
-  "Lactate threshold": ["Incremental treadmill, 4 min stages, 1.0 km/h steps (demo)", "Field 1 km repeats, capillary lactate (demo)"],
-  "VO2 max": ["Incremental treadmill to exhaustion, breath-by-breath (demo)"],
-  Sweat: ["Patch sweat test, 60 min fixed intensity (demo)"],
+const TYPES: TestType[] = ["Lactate threshold", "VO2 max", "Sweat"];
+const PROTOCOLS: Record<TestType, string> = {
+  "Lactate threshold": "Incremental treadmill, 4 min stages, 1.0 km/h steps, capillary lactate at stage end",
+  "VO2 max": "Incremental treadmill to exhaustion, breath-by-breath gas analysis",
+  Sweat: "Patch sweat test, 60 min run at fixed intensity, ambient conditions logged",
 };
+const RESULT_FIELDS: { key: string; label: string; types: TestType[]; pace?: boolean; int?: boolean }[] = [
+  { key: "vo2", label: "VO₂max (ml/kg/min)", types: ["VO2 max"] },
+  { key: "lt1Pace", label: "LT1 pace (mm:ss /km)", types: ["Lactate threshold"], pace: true },
+  { key: "lt1Hr", label: "LT1 heart rate (bpm)", types: ["Lactate threshold"], int: true },
+  { key: "lt2Pace", label: "LT2 pace (mm:ss /km)", types: ["Lactate threshold"], pace: true },
+  { key: "lt2Hr", label: "LT2 heart rate (bpm)", types: ["Lactate threshold"], int: true },
+  { key: "sweatRate", label: "Sweat rate (L/h)", types: ["Sweat"] },
+  { key: "sodium", label: "Sweat sodium (mmol/L)", types: ["Sweat"] },
+];
+
+const num = (s: string) => (s.trim() === "" ? undefined : Number(s));
+const toPace = (s: string) => {
+  if (!s.trim()) return undefined;
+  const m = s.match(/^(\d{1,2}):(\d{2})$/);
+  return m ? Number(m[1]) * 60 + Number(m[2]) : NaN;
+};
+const fromPace = (v?: number) => (v ? `${Math.floor(v / 60)}:${String(Math.round(v % 60)).padStart(2, "0")}` : "");
+const today = () => new Date().toISOString().slice(0, 10);
 
 export default function TestEntryPage() {
-  const [athleteId, setAthleteId] = useState(ATHLETES[0].id);
+  const { testId } = useParams<{ testId?: string }>();
+  const [, navigate] = useLocation();
+  const athletesQ = useAllAthletes();
+  const testQ = useTest(testId);
+  const create = useCreateTest();
+  const update = useUpdateTest();
+
+  const [athleteId, setAthleteId] = useState("");
   const [type, setType] = useState<TestType>("Lactate threshold");
-  const [date, setDate] = useState("2026-10-20");
-  const [protocol, setProtocol] = useState(PROTOCOLS["Lactate threshold"][0]);
-  const [equipment, setEquipment] = useState("Treadmill, handheld lactate analyser, chest HR strap (demo)");
+  const [date, setDate] = useState(today());
+  const [protocol, setProtocol] = useState(PROTOCOLS["Lactate threshold"]);
+  const [equipment, setEquipment] = useState("");
   const [stages, setStages] = useState<StageRow[]>([{ ...EMPTY_STAGE }, { ...EMPTY_STAGE }, { ...EMPTY_STAGE }]);
-  const [notes, setNotes] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
-  const athlete = ATHLETES.find((a) => a.id === athleteId) ?? ATHLETES[0];
+  const [res, setRes] = useState<Record<string, string>>({});
+  const [zonesSet, setZonesSet] = useState(false);
+  const [analysis, setAnalysis] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
 
-  const update = (i: number, k: keyof StageRow, v: string) => setStages((rows) => rows.map((r, idx) => (idx === i ? { ...r, [k]: v } : r)));
-  const complete = stages.filter((r) => r.speed && r.hr && r.lactate).length;
+  const t = testQ.data?.test;
+  useEffect(() => {
+    if (!t) return;
+    setAthleteId(t.athleteId);
+    setType(t.type as TestType);
+    setDate(t.date);
+    setProtocol(t.protocol ?? "");
+    setEquipment(t.equipment ?? "");
+    const st = (t.stages ?? []) as { speedKmh: number; hr?: number; lactate?: number; rpe?: number }[];
+    if (st.length) setStages(st.map((s) => ({ speed: String(s.speedKmh), hr: s.hr?.toString() ?? "", lactate: s.lactate?.toString() ?? "", rpe: s.rpe?.toString() ?? "" })));
+    const r = (t.results ?? {}) as Record<string, number | undefined>;
+    setRes(Object.fromEntries(RESULT_FIELDS.map((f) => [f.key, f.pace ? fromPace(r[f.key]) : (r[f.key]?.toString() ?? "")])));
+    setZonesSet(!!t.zonesSet);
+    setAnalysis(t.analysis ?? "");
+  }, [t]);
 
-  const changeType = (t: TestType) => {
-    setType(t);
-    setProtocol(PROTOCOLS[t][0]);
+  if (testId && testQ.isPending) return <Loading label="Loading test" />;
+  if (testId && !t) return <ErrorNote error={testQ.error ?? "Test not found."} />;
+  const locked = !!t && !["Draft", "Under review"].includes(t.status);
+
+  const setStage = (i: number, k: keyof StageRow, v: string) => setStages((rows) => rows.map((r, idx) => (idx === i ? { ...r, [k]: v } : r)));
+
+  const save = async () => {
+    setErr(null);
+    setSaved(false);
+    if (!athleteId) return setErr("Choose an athlete.");
+    const results: Record<string, number> = {};
+    for (const f of RESULT_FIELDS) {
+      if (!f.types.includes(type)) continue;
+      const raw = res[f.key] ?? "";
+      const v = f.pace ? toPace(raw) : num(raw);
+      if (v === undefined) continue;
+      if (Number.isNaN(v)) return setErr(`${f.label}: enter a valid value${f.pace ? " like 4:35" : ""}.`);
+      results[f.key] = f.int ? Math.round(v) : v;
+    }
+    const stageRows =
+      type === "Lactate threshold"
+        ? stages
+            .filter((s) => s.speed.trim())
+            .map((s, i) => ({ n: i + 1, speedKmh: Number(s.speed), hr: num(s.hr), lactate: num(s.lactate), rpe: num(s.rpe) }))
+        : null;
+    if (stageRows?.some((s) => [s.speedKmh, s.hr, s.lactate, s.rpe].some((v) => v !== undefined && Number.isNaN(v)))) return setErr("Stage values must be numbers.");
+    const body = { type, date, protocol: protocol || null, equipment: equipment || null, stages: stageRows, results, zonesSet, analysis: analysis.trim() || null };
+    try {
+      if (t) {
+        await update.mutateAsync({ testId: t.id, ...body });
+        setSaved(true);
+      } else {
+        const r = await create.mutateAsync({ athleteId, ...body });
+        navigate(`/practitioner/testing/entry/${r.id}`);
+        setSaved(true);
+      }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not save.");
+    }
   };
+
+  const athletes = athletesQ.data ?? [];
+  const selected = athletes.find((a) => a.id === athleteId);
+  const busy = create.isPending || update.isPending;
 
   return (
     <div>
-      <PageHeader eyebrow="Practitioner only" title="Test entry">
-        <StatusPill status="Draft" />
+      <PageHeader eyebrow="Practitioner only" title={t ? "Edit test results" : "New test"}>
+        <StatusPill status={(t?.status ?? "Draft") as "Draft"} />
+        {t && <PaymentBadge status={t.paymentStatus as never} />}
         <DemoTag />
       </PageHeader>
 
-      <div className="rounded-[10px] border border-[#2f5d46]/30 bg-[#2f5d46]/8 p-4 mb-6 text-[13.5px] text-[#25422f]">
-        Raw data is entered once and locked after review. Coaches cannot edit raw values. Results are calculated only with the approved Vert & Dirt method, which is not connected in this prototype. Nothing on this screen is saved.
-      </div>
+      {locked && (
+        <div className="rounded-[10px] border border-[#b9793a]/40 bg-[#b9793a]/10 p-4 mb-6 text-[13.5px] text-[#6b431a]">
+          This test is {t!.status === "Published" ? "published" : "marked analysis complete"} and locked. Open the report and use “Reopen for correction” to edit it.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-6">
-        <div className="space-y-6">
+        <fieldset disabled={locked} className="space-y-6 min-w-0">
           <Card title="1. Session">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[13.5px]">
               <Field label="Athlete">
-                <select aria-label="Athlete" value={athleteId} onChange={(e) => setAthleteId(e.target.value)} className={inputCls}>
-                  {ATHLETES.map((a) => (
+                <select aria-label="Athlete" value={athleteId} onChange={(e) => setAthleteId(e.target.value)} className={inputCls} disabled={!!t}>
+                  <option value="">Choose an athlete…</option>
+                  {athletes.map((a) => (
                     <option key={a.id} value={a.id}>
-                      {a.name} · {a.position}
+                      {a.name}
+                      {a.position ? ` · ${a.position}` : ""}
                     </option>
                   ))}
                 </select>
               </Field>
               <Field label="Team">
-                <input readOnly aria-label="Team" value={TEAM.name} className={inputCls + " text-muted-foreground"} />
+                <input readOnly aria-label="Team" value={selected ? selected.teams.join(", ") || "Individual" : "—"} className={inputCls + " text-muted-foreground"} />
               </Field>
               <Field label="Test type">
-                <select aria-label="Test type" value={type} onChange={(e) => changeType(e.target.value as TestType)} className={inputCls}>
-                  {(Object.keys(PROTOCOLS) as TestType[]).map((t) => (
-                    <option key={t}>{t}</option>
+                <select
+                  aria-label="Test type"
+                  value={type}
+                  onChange={(e) => {
+                    const v = e.target.value as TestType;
+                    setType(v);
+                    setProtocol(PROTOCOLS[v]);
+                  }}
+                  className={inputCls}
+                >
+                  {TYPES.map((x) => (
+                    <option key={x}>{x}</option>
                   ))}
                 </select>
               </Field>
@@ -73,169 +167,119 @@ export default function TestEntryPage() {
                 <input aria-label="Session date" type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
               </Field>
               <Field label="Testing protocol">
-                <select aria-label="Testing protocol" value={protocol} onChange={(e) => setProtocol(e.target.value)} className={inputCls}>
-                  {PROTOCOLS[type].map((p) => (
-                    <option key={p}>{p}</option>
-                  ))}
-                </select>
+                <input aria-label="Testing protocol" value={protocol} onChange={(e) => setProtocol(e.target.value)} className={inputCls} />
               </Field>
               <Field label="Testing equipment">
-                <input aria-label="Testing equipment" value={equipment} onChange={(e) => setEquipment(e.target.value)} className={inputCls} />
+                <input aria-label="Testing equipment" value={equipment} placeholder="e.g. treadmill, lactate analyser, HR strap" onChange={(e) => setEquipment(e.target.value)} className={inputCls} />
               </Field>
-              <div className="md:col-span-2 text-[12.5px] text-muted-foreground">
-                Athlete: {athlete.sex === "F" ? "Female" : "Male"} · {athlete.position} · last test {athlete.tested ? fmtDate(athlete.lastTest) : "none"}
-              </div>
             </div>
           </Card>
 
           {type === "Lactate threshold" && (
-            <Card title="2. Stage data" pad={false} right={<span className="text-[12.5px] text-muted-foreground num">{complete} complete stage(s)</span>}>
+            <Card title="2. Stage data" pad={false}>
               <div className="overflow-x-auto">
                 <table className="w-full text-[13px]">
                   <thead>
                     <tr className="text-left text-[11px] uppercase tracking-[0.12em] text-muted-foreground border-b border-border">
                       <th className="px-4 py-2.5 font-semibold">Stage</th>
                       <th className="px-2 py-2.5 font-semibold">Speed km/h</th>
-                      <th className="px-2 py-2.5 font-semibold">Pace (auto)</th>
                       <th className="px-2 py-2.5 font-semibold">HR bpm</th>
                       <th className="px-2 py-2.5 font-semibold">Lactate mmol/L</th>
                       <th className="px-2 py-2.5 font-semibold">RPE 6–20</th>
-                      <th className="px-4 py-2.5 font-semibold">Note</th>
+                      <th className="px-4 py-2.5" />
                     </tr>
                   </thead>
                   <tbody>
-                    {stages.map((r, i) => {
-                      const v = parseFloat(r.speed);
-                      return (
-                        <tr key={i} className="border-t border-border/70">
-                          <td className="px-4 py-2 num">{i + 1}</td>
-                          {(["speed", "hr", "lactate", "rpe"] as const).map((k) => (
-                            <td key={k} className="py-2 px-2">
-                              <input
-                                aria-label={`Stage ${i + 1} ${k}`}
-                                inputMode="decimal"
-                                value={r[k]}
-                                onChange={(e) => update(i, k, e.target.value)}
-                                className="w-full min-w-[72px] rounded border border-border bg-background px-2 py-1 num"
-                              />
-                            </td>
-                          ))}
-                          <td className="px-2 py-2 num text-muted-foreground">{v > 0 ? `${Math.floor(3600 / v / 60)}:${Math.round((3600 / v) % 60).toString().padStart(2, "0")} /km` : "—"}</td>
-                          <td className="px-4 py-2 text-right">
-                            <button
-                              onClick={() => setStages((rows) => rows.filter((_, idx) => idx !== i))}
-                              className="text-[12px] text-[#b3412b] hover:underline"
-                              disabled={stages.length <= 1}
-                            >
-                              Remove
-                            </button>
+                    {stages.map((r, i) => (
+                      <tr key={i} className="border-t border-border/70">
+                        <td className="px-4 py-2 num">{i + 1}</td>
+                        {(["speed", "hr", "lactate", "rpe"] as const).map((k) => (
+                          <td key={k} className="py-2 px-2">
+                            <input
+                              aria-label={`Stage ${i + 1} ${k}`}
+                              inputMode="decimal"
+                              value={r[k]}
+                              onChange={(e) => setStage(i, k, e.target.value)}
+                              className="w-full min-w-[64px] rounded border border-border bg-background px-2 py-1 num"
+                            />
                           </td>
-                        </tr>
-                      );
-                    })}
+                        ))}
+                        <td className="px-4 py-2 text-right">
+                          <button type="button" onClick={() => setStages((rows) => rows.filter((_, idx) => idx !== i))} className="text-[12px] text-[#b3412b] hover:underline" disabled={stages.length <= 1}>
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
-              <div className="px-5 py-3 border-t border-border/70 flex items-center justify-between">
-                <button onClick={() => setStages((rows) => [...rows, { ...EMPTY_STAGE }])} className="text-[13px] font-semibold text-[#2f5d46] hover:underline">
+              <div className="px-5 py-3 border-t border-border/70">
+                <button type="button" onClick={() => setStages((rows) => [...rows, { ...EMPTY_STAGE }])} className="text-[13px] font-semibold text-[#2f5d46] hover:underline">
                   + Add stage
                 </button>
-                <span className="text-[12px] text-muted-foreground">Stage duration: 4 min (protocol default). Stage speed is the raw input; pace is derived.</span>
               </div>
             </Card>
           )}
 
-          {type === "VO2 max" && (
-            <Card title="2. Metabolic data">
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-[13.5px]">
-                {["Measured VO₂max (ml/kg/min)", "Peak HR (bpm)", "Test duration (min)", "Peak speed (km/h)", "Peak power (W)", "Respiratory exchange ratio"].map((l) => (
-                  <Field key={l} label={l}>
-                    <input aria-label={l} placeholder="Not measured" className={inputCls} />
-                  </Field>
-                ))}
-              </div>
-            </Card>
-          )}
+          <Card title={`${type === "Lactate threshold" ? "3" : "2"}. Results`}>
+            <p className="text-[12.5px] text-muted-foreground mb-4">Enter values from the approved Vert & Dirt analysis. Leave a field empty when it wasn't measured; it shows as “Not tested”.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-[13.5px]">
+              {RESULT_FIELDS.filter((f) => f.types.includes(type)).map((f) => (
+                <Field key={f.key} label={f.label}>
+                  <input aria-label={f.label} value={res[f.key] ?? ""} placeholder={f.pace ? "e.g. 4:35" : "Not measured"} onChange={(e) => setRes((r) => ({ ...r, [f.key]: e.target.value }))} className={inputCls} />
+                </Field>
+              ))}
+            </div>
+            {type === "Lactate threshold" && (
+              <label className="mt-4 flex items-center gap-2 text-[13.5px]">
+                <input type="checkbox" checked={zonesSet} onChange={(e) => setZonesSet(e.target.checked)} /> Training zones set from these thresholds
+              </label>
+            )}
+          </Card>
 
-          {type === "Sweat" && (
-            <Card title="2. Sweat data">
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-[13.5px]">
-                {["Pre-test body mass (kg)", "Post-test body mass (kg)", "Fluid intake (L)", "Duration (min)", "Sweat sodium (mmol/L)", "Ambient temperature (°C)", "Relative humidity (%)"].map((l) => (
-                  <Field key={l} label={l}>
-                    <input aria-label={l} placeholder="Not measured" className={inputCls} />
-                  </Field>
-                ))}
-              </div>
-            </Card>
-          )}
-
-          <Card title="3. Practitioner observations">
+          <Card title="Practitioner analysis">
             <textarea
-              aria-label="Practitioner observations"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={4}
-              placeholder="Observations, athlete condition, protocol deviations. Visible to the practitioner only until the report is approved."
+              aria-label="Practitioner analysis"
+              value={analysis}
+              onChange={(e) => setAnalysis(e.target.value)}
+              rows={5}
+              placeholder="Interpretation and recommendations. Required before marking analysis complete. Not visible to coaches or athletes until published."
               className="w-full rounded-md border border-border bg-background p-3 text-[13.5px] outline-none focus:border-[#2f5d46]"
             />
           </Card>
-        </div>
+        </fieldset>
 
         <div className="space-y-6">
+          <Card title="Save">
+            <p className="text-[13px] text-muted-foreground mb-4">Saving keeps the test in its current status. Every change is recorded in the test history.</p>
+            <button onClick={save} disabled={busy || locked} className={btn("primary", "w-full")}>
+              {busy ? "Saving…" : t ? "Save changes" : "Create test"}
+            </button>
+            {saved && <p className="mt-3 text-[13px] text-[#2f5d46] font-semibold">Saved.</p>}
+            <ErrorNote error={err} className="mt-3" />
+            {t && (
+              <Link href={`/practitioner/athletes/${t.athleteId}/tests/${t.id}`} className={btn("ghost", "w-full mt-2.5")}>
+                Open report and workflow
+              </Link>
+            )}
+            <Link href="/practitioner/testing" className="block text-center mt-3 text-[13px] text-[#2f5d46] hover:underline">
+              Back to testing management
+            </Link>
+          </Card>
           <Card title="Workflow">
-            <ol className="space-y-3 text-[13.5px]">
-              {[
-                ["Draft", "Raw data entered, calculation not yet run", true],
-                ["Under review", "Calculated with approved method, interpretation pending", false],
-                ["Approved", "Signed off by a qualified practitioner", false],
-                ["Published", "Visible to authorised athlete and coach", false],
-              ].map(([s, d, on], i) => (
-                <li key={s as string} className="flex gap-3">
-                  <span className={`h-6 w-6 shrink-0 rounded-full grid place-items-center text-[12px] font-semibold ${on ? "bg-[#2f5d46] text-white" : "bg-muted text-muted-foreground"}`}>
-                    {i + 1}
-                  </span>
-                  <div>
-                    <div className="font-semibold">{s as string}</div>
-                    <div className="text-[12.5px] text-muted-foreground">{d as string}</div>
-                  </div>
-                </li>
-              ))}
+            <ol className="space-y-2 text-[13px] text-muted-foreground list-decimal pl-5">
+              <li>Results uploaded (draft)</li>
+              <li>Under review</li>
+              <li>Analysis complete (analysis required)</li>
+              <li>Published (payment verified)</li>
             </ol>
-          </Card>
-
-          <Card title="Actions">
-            <div className="flex flex-col gap-2.5">
-              <button
-                onClick={() => setMessage("Demo only: draft not saved. Persistence and audit logging come in the backend phase.")}
-                className="rounded-md border border-border bg-card px-4 py-2.5 text-[14px] font-semibold hover:bg-background"
-              >
-                Save draft
-              </button>
-              <button
-                onClick={() => setMessage("Demo only: calculation requires the approved Vert & Dirt method. Not connected in this prototype.")}
-                className="rounded-md bg-[#2f5d46] text-white px-4 py-2.5 text-[14px] font-semibold hover:bg-[#264d3a]"
-              >
-                Calculate results
-              </button>
-              <button disabled className="rounded-md bg-muted text-muted-foreground px-4 py-2.5 text-[14px] font-semibold cursor-not-allowed">
-                Submit for review (after calculation)
-              </button>
-            </div>
-            {message && <p className="mt-4 text-[12.5px] text-[#7a4c1c] bg-[#b9793a]/10 rounded-md p-3">{message}</p>}
-          </Card>
-
-          <Card title="Upload raw file" right={<DemoTag />}>
-            <div className="rounded-md border border-dashed border-border p-6 text-center text-[13px] text-muted-foreground">
-              Drop instrument export (CSV / XLSX) here. Parsing is not built in the prototype.
-            </div>
           </Card>
         </div>
       </div>
     </div>
   );
 }
-
-const inputCls = "w-full rounded-md border border-border bg-background px-3 py-2 text-[13.5px] outline-none focus:border-[#2f5d46]";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (

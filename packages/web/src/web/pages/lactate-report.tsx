@@ -4,7 +4,7 @@ import { fmtDate, fmtNum, fmtPace, interpretation, lactateStages, paymentVerifie
 import { Card, DemoTag, PageHeader, Stat, StatusPill } from "../components/shell";
 import { LactateCurve } from "../components/charts";
 import { useAthlete, type AthleteDetail } from "../hooks/use-squad";
-import { useViewerRole } from "../hooks/use-viewer";
+import { passportHref, useViewerRole } from "../hooks/use-viewer";
 import { usePublishTest, useReopenTest, useSetTestStatus, useTestAudit } from "../queries/tests";
 import { useMe } from "../queries/me";
 import { errorMessage } from "../lib/api";
@@ -17,6 +17,8 @@ type TestView = AthleteDetail["tests"][number];
 export default function LactateReportPage() {
   const params = useParams<{ id: string; testId: string }>();
   const q = useAthlete(params.id);
+  const role = useViewerRole();
+  const back = passportHref(role, params.id);
   if (q.isPending) return <Loading label="Loading report" />;
   const t = q.data?.tests.find((x) => x.id === params.testId);
   if (!q.data || !t) {
@@ -24,13 +26,13 @@ export default function LactateReportPage() {
       <div className="py-16 text-center">
         <h1 className="font-display text-[36px] uppercase">Report not available</h1>
         <p className="text-muted-foreground mt-2">{q.error ? errorMessage(q.error) : "This test doesn't exist or isn't shared with you."}</p>
-        <Link href={`/athletes/${params.id}`} className="inline-block mt-4 text-[#2f5d46] font-semibold hover:underline">
+        <Link href={back} className="inline-block mt-4 text-[#2f5d46] font-semibold hover:underline">
           Back to passport
         </Link>
       </div>
     );
   }
-  return <ReportView detail={q.data} t={t} passportHref={`/athletes/${params.id}`} />;
+  return <ReportView detail={q.data} t={t} passportHref={back} />;
 }
 
 /** One test report. Values come only from this test's own record (never from another test). */
